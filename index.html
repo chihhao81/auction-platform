@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <script type="text/javascript">
+    // GitHub Pages SPA 路由修復腳本
+    (function (l) {
+      if (l.search[1] === 'p') {
+        var decoded = l.search.slice(1).split('&').map(function (s) {
+          return s.replace(/~and~/g, '&')
+        }).filter(function (v) {
+          return v.indexOf('p=/') === 0
+        })[0];
+        if (decoded !== undefined) {
+          window.history.replaceState(null, null,
+            l.pathname.slice(0, (l.pathname.endsWith('/') ? -1 : undefined)) + decoded.slice(2) +
+            (l.hash || '')
+          );
+        }
+      }
+    }(window.location))
+  </script>
+  <title>特寵競標平台</title>
+</head>
+
+<body>
+  <div id="root"></div>
+  <script type="module" src="/src/main.jsx"></script>
+</body>
+
+</html>

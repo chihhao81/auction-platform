@@ -1,0 +1,40 @@
+.app-footer {
+    padding: 2rem 1rem;
+    margin-top: auto;
+    border-top: 1px solid var(--border);
+    background: rgba(255, 255, 255, 0.02);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+}
+
+.footer-content {
+    max-width: 1200px;
+    margin: 0 auto;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+}
+
+.app-footer p {
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    margin: 0;
+}
+
+.app-footer .copyright {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+
+.app-footer .terms-link {
+    color: var(--accent-primary);
+    text-decoration: underline;
+    cursor: pointer;
+    font-weight: 500;
+    transition: opacity 0.2s;
+}
+
+.app-footer .terms-link:hover {
+    opacity: 0.8;
+}
