@@ -1,28 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAuction } from '../context/AuctionContext';
 import { supabase } from '../utils/supabaseClient';
 import './Admin.css';
 
-export const PRODUCT_SIZES = [
-    { id: '0', value: '0.3cm以上' },
-    { id: '1', value: '0.5cm以上' },
-    { id: '2', value: '亞成成體' },
-    { id: '3', value: '幼體' },
-    { id: '4', value: '小亞成' },
-    { id: '5', value: '0.5-1公分' },
-    { id: '6', value: '1-1.5公分' },
-    { id: '7', value: '1.5-2公分' },
-    { id: '8', value: '2-2.5公分' },
-    { id: '9', value: '3公分以上' },
-];
-
 const Admin = () => {
-    const { addProduct, fetchAuctions } = useAuction();
-    const [productsList, setProductsList] = useState([]);
-    const [loadingProducts, setLoadingProducts] = useState(false);
+    return (
+        <div className="admin-container">
+            <AuctionManager />
+            <UserSearch />
+        </div>
+    );
+};
+
+const AuctionManager = () => {
+    const { fetchAuctions, auctions } = useAuction();
     const [submitting, setSubmitting] = useState(false);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [showDropdown, setShowDropdown] = useState(false);
+    const fileInputRef = useRef(null);
+
+    // Form States
+    const [editMode, setEditMode] = useState(false);
+    const [editingId, setEditingId] = useState(null);
+
+    // existingImages: URLs from DB that we keep; imageFiles: new File objects to upload
+    const [existingImages, setExistingImages] = useState([]);
 
     const getCurrentTime = () => {
         const now = new Date();
@@ -60,290 +60,213 @@ const Admin = () => {
     };
 
     const [formData, setFormData] = useState({
-        productId: '',
         title: '',
         description: localStorage.getItem('aura_last_description') || '',
         startPrice: '0',
         minIncrement: '50',
         startTime: getCurrentTime(),
         endTime: getDefaultEndTime(),
-        productSize: '0',
-        quantity: 1,
-        paymentAccountId: localStorage.getItem('aura_last_payment_account') || ''
     });
+    const [imageFiles, setImageFiles] = useState([]);
 
-    const [paymentAccountsList, setPaymentAccountsList] = useState([]);
-    const [loadingAccounts, setLoadingAccounts] = useState(false);
-
-    const fetchPaymentAccounts = async (force = false) => {
-        if (!force) {
-            const cached = localStorage.getItem('aura_payment_accounts_cache');
-            if (cached) {
-                try {
-                    setPaymentAccountsList(JSON.parse(cached));
-                    return;
-                } catch (e) {
-                    console.error('解析匯款帳號快取失敗:', e);
-                }
-            }
-        }
-
-        setLoadingAccounts(true);
-        try {
-            const { data, error } = await supabase
-                .from('payment_accounts')
-                .select('*')
-                .eq('is_active', true);
-
-            if (error) throw error;
-            setPaymentAccountsList(data || []);
-            localStorage.setItem('aura_payment_accounts_cache', JSON.stringify(data || []));
-
-            if (data && data.length > 0) {
-                const currentSaved = localStorage.getItem('aura_last_payment_account');
-                const exists = data.find(acc => acc.id === currentSaved);
-                if (!exists) {
-                    setFormData(prev => ({ ...prev, paymentAccountId: data[0].id }));
-                }
-            }
-        } catch (err) {
-            console.error('獲取匯款帳號清單失敗:', err);
-            alert('匯款帳號清單獲取失敗。');
-        } finally {
-            setLoadingAccounts(false);
-        }
-    };
-
-    const fetchProducts = async (force = false) => {
-        // Try to load from cache first if not forced
-        if (!force) {
-            const cached = localStorage.getItem('aura_products_cache');
-            if (cached) {
-                try {
-                    setProductsList(JSON.parse(cached));
-                    return;
-                } catch (e) {
-                    console.error('解析快取失敗:', e);
-                }
-            }
-        }
-
-        setLoadingProducts(true);
-        try {
-            const { data, error } = await supabase.functions.invoke("get-products", {
-                headers: {
-                    Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-                },
-            });
-            if (error) throw error;
-            setProductsList(data || []);
-            localStorage.setItem('aura_products_cache', JSON.stringify(data || []));
-        } catch (err) {
-            console.error('獲取產品清單失敗:', err);
-            alert('產品清單獲取失敗，請確認網路或後端 CORS 設定。');
-        } finally {
-            setLoadingProducts(false);
-        }
-    };
-
+    // Listen for edit requests from AuctionCard three-dot menu
     useEffect(() => {
-        fetchProducts();
-        fetchPaymentAccounts();
-
-        // Close dropdown when clicking outside
-        const handleClickOutside = (e) => {
-            if (!e.target.closest('.autocomplete-container')) {
-                setShowDropdown(false);
-            }
+        const handleEditEvent = (e) => {
+            handleEdit(e.detail);
         };
-        document.addEventListener('click', handleClickOutside);
-        return () => document.removeEventListener('click', handleClickOutside);
+        window.addEventListener('admin-edit-auction', handleEditEvent);
+        return () => window.removeEventListener('admin-edit-auction', handleEditEvent);
     }, []);
 
-    const filteredProducts = productsList.filter(p =>
-        p.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        p.name.toLowerCase().includes(searchTerm.toLowerCase())
-    );
+    const handleAddImages = (e) => {
+        const newFiles = Array.from(e.target.files);
+        if (newFiles.length > 0) {
+            setImageFiles(prev => [...prev, ...newFiles]);
+        }
+        // 重設 input 讓同一檔案可以再選
+        e.target.value = '';
+    };
 
-    const handleProductSelect = (product) => {
-        setFormData({
-            ...formData,
-            productId: product.id,
-            title: product.name,
-        });
-        setSearchTerm(`${product.id} - ${product.name}`);
-        setShowDropdown(false);
+    const removeImage = (index) => {
+        setImageFiles(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const uploadImages = async (files) => {
+        const uploadedUrls = [];
+        for (const file of files) {
+            const fileExt = file.name.split('.').pop();
+            const fileName = `${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+            const { data, error } = await supabase.storage
+                .from('product_images')
+                .upload(fileName, file);
+            if (error) {
+                console.error("Upload error:", error);
+                throw new Error("圖片上傳失敗");
+            }
+            const { data: publicUrlData } = supabase.storage
+                .from('product_images')
+                .getPublicUrl(fileName);
+            uploadedUrls.push(publicUrlData.publicUrl);
+        }
+        return uploadedUrls;
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        if (!formData.productId) {
-            alert('請選擇產品');
-            return;
-        }
-        if (!formData.paymentAccountId) {
-            alert('請選擇匯款帳號');
-            return;
-        }
-
-        const parsedQuantity = parseInt(formData.quantity, 10);
-        if (isNaN(parsedQuantity) || parsedQuantity < 1) {
-            alert('請輸入有效的數量 (至少為 1)');
-            return;
-        }
+        if (!formData.title) return alert('請輸入標題');
+        if (!editMode && imageFiles.length === 0) return alert('請至少上傳一張圖片');
+        if (editMode && existingImages.length === 0 && imageFiles.length === 0) return alert('請至少保留或上傳一張圖片');
 
         setSubmitting(true);
         try {
             const finalStartTime = formData.startTime ? new Date(formData.startTime) : new Date();
             const finalEndTime = new Date(formData.endTime);
 
-            if (formData.paymentAccountId) {
-                localStorage.setItem('aura_last_payment_account', formData.paymentAccountId);
-            }
             localStorage.setItem('aura_last_description', formData.description || '');
 
-            const { error } = await supabase.rpc('create_auction', {
-                p_description: formData.description || '',
-                p_start_price: Number(formData.startPrice),
-                p_min_increment: Number(formData.minIncrement),
-                p_start_time: finalStartTime.toISOString(),
-                p_end_time: finalEndTime.toISOString(),
-                p_product_id: String(formData.productId),
-                p_product_name: String(formData.title),
-                p_product_size: String(formData.productSize),
-                p_quantity: Number(formData.quantity),
-                p_payment_account_id: String(formData.paymentAccountId)
-            });
-            if (error) throw error;
+            let imageUrls = [];
 
-            setFormData({
-                productId: '',
-                title: '',
-                description: localStorage.getItem('aura_last_description') || '',
-                startPrice: '0',
-                minIncrement: '50',
-                startTime: getCurrentTime(),
-                endTime: getDefaultEndTime(),
-                productSize: '0',
-                quantity: 1,
-                paymentAccountId: localStorage.getItem('aura_last_payment_account') || ''
-            });
-            setSearchTerm('');
-            alert('產品發佈成功！');
+            // Combine existing images (URLs kept from DB) + newly uploaded files
+            if (editMode) {
+                imageUrls = [...existingImages];
+            }
+            if (imageFiles.length > 0) {
+                const newUrls = await uploadImages(imageFiles);
+                imageUrls = [...imageUrls, ...newUrls];
+            }
+            if (imageUrls.length === 0 && !editMode) {
+                return alert('請至少上傳一張圖片');
+            }
+
+            if (editMode) {
+                const { error } = await supabase.rpc('update_auction', {
+                    p_auction_id: editingId,
+                    p_description: formData.description || '',
+                    p_end_time: finalEndTime.toISOString(),
+                    p_images: imageUrls,
+                    p_min_increment: Number(formData.minIncrement),
+                    p_start_price: Number(formData.startPrice),
+                    p_start_time: finalStartTime.toISOString(),
+                    p_title: formData.title
+                });
+                if (error) throw error;
+                alert('編輯成功！');
+            } else {
+                const { error } = await supabase.rpc('create_auction', {
+                    p_description: formData.description || '',
+                    p_end_time: finalEndTime.toISOString(),
+                    p_images: imageUrls,
+                    p_min_increment: Number(formData.minIncrement),
+                    p_start_price: Number(formData.startPrice),
+                    p_start_time: finalStartTime.toISOString(),
+                    p_title: formData.title
+                });
+                if (error) throw error;
+                alert('發佈成功！');
+            }
+
+            resetForm();
             fetchAuctions();
         } catch (error) {
-            alert('發佈失敗: ' + error.message);
+            alert((editMode ? '編輯失敗: ' : '發佈失敗: ') + error.message);
         } finally {
             setSubmitting(false);
         }
     };
 
+    const resetForm = () => {
+        setFormData({
+            title: '',
+            description: localStorage.getItem('aura_last_description') || '',
+            startPrice: '0',
+            minIncrement: '50',
+            startTime: getCurrentTime(),
+            endTime: getDefaultEndTime(),
+        });
+        setImageFiles([]);
+        setExistingImages([]);
+        setEditMode(false);
+        setEditingId(null);
+    };
+
+    const handleEdit = (auction) => {
+        setEditMode(true);
+        setEditingId(auction.id);
+
+        const formatForInput = (dateObj) => {
+            const pad = (n) => String(n).padStart(2, '0');
+            return `${dateObj.getFullYear()}-${pad(dateObj.getMonth() + 1)}-${pad(dateObj.getDate())}T${pad(dateObj.getHours())}:${pad(dateObj.getMinutes())}`;
+        };
+
+        setFormData({
+            title: auction.name,
+            description: auction.description || '',
+            startPrice: auction.startPrice,
+            minIncrement: auction.minIncrement,
+            startTime: formatForInput(new Date(auction.startTime)),
+            endTime: formatForInput(new Date(auction.endTime)),
+        });
+        // Load existing images as URLs
+        setExistingImages(auction.images || []);
+        setImageFiles([]);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+
+
     return (
-        <div className="admin-container">
             <form className="admin-card glass-card" onSubmit={handleSubmit}>
-                <h2>新增競標產品</h2>
+                <h2>{editMode ? '編輯競標產品' : '新增競標產品'}</h2>
+                {editMode && (
+                    <div style={{ marginBottom: '1rem' }}>
+                        <button type="button" className="btn-secondary" onClick={resetForm}>取消編輯</button>
+                    </div>
+                )}
 
                 <div className="input-group">
-                    <label>產品 ({filteredProducts.length})</label>
-                    <div className="product-selection-header">
-                        <div className="autocomplete-container">
-                            <input
-                                type="text"
-                                className="search-input"
-                                placeholder="請輸入產品 ID 或名稱搜尋..."
-                                value={searchTerm}
-                                onChange={(e) => {
-                                    setSearchTerm(e.target.value);
-                                    setShowDropdown(true);
-                                }}
-                                onFocus={() => setShowDropdown(true)}
-                            />
-                            {showDropdown && (
-                                <div className="dropdown-list">
-                                    {filteredProducts.length > 0 ? (
-                                        filteredProducts.map(p => (
-                                            <div
-                                                key={p.id}
-                                                className="dropdown-item"
-                                                onClick={() => handleProductSelect(p)}
-                                            >
-                                                {p.id} - {p.name}
-                                            </div>
-                                        ))
-                                    ) : (
-                                        <div className="dropdown-item no-results">找無相關產品</div>
-                                    )}
+                    <label>競標標題</label>
+                    <input
+                        type="text"
+                        value={formData.title}
+                        onChange={e => setFormData({ ...formData, title: e.target.value })}
+                        required
+                    />
+                </div>
+
+                <div className="input-group">
+                    <label>圖片</label>
+                    <input
+                        ref={fileInputRef}
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        onChange={handleAddImages}
+                        style={{ display: 'none' }}
+                    />
+                    <button
+                        type="button"
+                        className="image-upload-btn"
+                        onClick={() => fileInputRef.current?.click()}
+                    >
+                        📷 選擇圖片
+                    </button>
+                    {(existingImages.length > 0 || imageFiles.length > 0) && (
+                        <div className="image-preview-list">
+                            {existingImages.map((url, i) => (
+                                <div key={`existing-${i}`} className="image-preview-item">
+                                    <img src={url} alt={`existing ${i}`} />
+                                    <button type="button" className="image-remove-btn" onClick={() => setExistingImages(prev => prev.filter((_, idx) => idx !== i))}>&times;</button>
                                 </div>
-                            )}
-                        </div>
-                        <button
-                            type="button"
-                            className="refresh-btn"
-                            onClick={() => fetchProducts(true)}
-                            disabled={loadingProducts}
-                            title="重新整理清單"
-                        >
-                            {loadingProducts ? '...' : '刷新'}
-                        </button>
-                    </div>
-                </div>
-
-                <div className="row">
-                    <div className="input-group">
-                        <label>尺寸</label>
-                        <select
-                            value={formData.productSize}
-                            onChange={(e) => setFormData({ ...formData, productSize: e.target.value })}
-                            required
-                        >
-                            {PRODUCT_SIZES.map(size => (
-                                <option key={size.id} value={size.id}>
-                                    {size.value}
-                                </option>
                             ))}
-                        </select>
-                    </div>
-                    <div className="input-group">
-                        <label>數量</label>
-                        <input
-                            type="number"
-                            value={formData.quantity}
-                            onChange={(e) => setFormData({ ...formData, quantity: e.target.value })}
-                            onWheel={(e) => e.target.blur()}
-                            min="1"
-                            required
-                        />
-                    </div>
-                </div>
-
-                <div className="input-group">
-                    <label>匯款帳號</label>
-                    <div className="product-selection-header">
-                        <select
-                            value={formData.paymentAccountId}
-                            onChange={(e) => setFormData({ ...formData, paymentAccountId: e.target.value })}
-                            required
-                        >
-                            <option value="" disabled>請選擇匯款帳號</option>
-                            {paymentAccountsList.map(acc => {
-                                const last5 = acc.account_number ? String(acc.account_number).slice(-5) : '';
-                                return (
-                                    <option key={acc.id} value={acc.id}>
-                                        {last5}-{acc.label}
-                                    </option>
-                                );
-                            })}
-                        </select>
-                        <button
-                            type="button"
-                            className="refresh-btn"
-                            onClick={() => fetchPaymentAccounts(true)}
-                            disabled={loadingAccounts}
-                            title="重新整理清單"
-                        >
-                            {loadingAccounts ? '...' : '刷新'}
-                        </button>
-                    </div>
+                            {imageFiles.map((file, i) => (
+                                <div key={`new-${i}`} className="image-preview-item">
+                                    <img src={URL.createObjectURL(file)} alt={file.name} />
+                                    <button type="button" className="image-remove-btn" onClick={() => removeImage(i)}>&times;</button>
+                                    <span className="image-preview-name">{file.name}</span>
+                                </div>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 <div className="input-group">
@@ -355,6 +278,7 @@ const Admin = () => {
                         className="admin-textarea"
                     />
                 </div>
+
                 <div className="row">
                     <div className="input-group">
                         <label>起標價</label>
@@ -377,6 +301,7 @@ const Admin = () => {
                         />
                     </div>
                 </div>
+
                 <div className="row">
                     <div className="input-group">
                         <label>競標起始時間 (選填)</label>
@@ -396,188 +321,78 @@ const Admin = () => {
                         />
                     </div>
                 </div>
+
                 <button type="submit" className="btn-primary w-full" disabled={submitting}>
-                    {submitting ? '發佈中...' : '發佈產品'}
+                    {submitting ? '處理中...' : (editMode ? '儲存變更' : '發佈產品')}
                 </button>
             </form>
-
-            <div className="admin-card glass-card verify-section">
-                <h2>驗證使用者</h2>
-                <UserVerification />
-            </div>
-        </div>
     );
 };
 
-const UserVerification = () => {
-    const [userId, setUserId] = useState('');
-    const [customerId, setCustomerId] = useState('');
-    const [lineGroupName, setLineGroupName] = useState('');
-    const [phone, setPhone] = useState('');
-    const [loading, setLoading] = useState(false);
-
-    // 使用者搜尋相關
-    const [userSearchTerm, setUserSearchTerm] = useState('');
-    const [userSearchResults, setUserSearchResults] = useState([]);
-    const [showUserDropdown, setShowUserDropdown] = useState(false);
+const UserSearch = () => {
+    const [searchTerm, setSearchTerm] = useState('');
+    const [searchResults, setSearchResults] = useState([]);
     const [searching, setSearching] = useState(false);
-    const searchTimeoutRef = React.useRef(null);
 
-    const searchUsers = async (term) => {
-        if (!term || term.length < 1) {
-            setUserSearchResults([]);
-            setShowUserDropdown(false);
-            return;
-        }
+    const handleSearch = async (e) => {
+        e.preventDefault();
+        if (!searchTerm) return;
         setSearching(true);
         try {
             const { data, error } = await supabase
                 .from('profiles')
-                .select('id, line_display_name, picture_url')
-                .ilike('line_display_name', `%${term}%`)
+                .select('phone, line_display_name, line_group_display_name, picture_url')
+                .ilike('line_group_display_name', `%${searchTerm}%`)
                 .limit(20);
+
             if (error) throw error;
-            setUserSearchResults(data || []);
-            setShowUserDropdown(true);
+            setSearchResults(data || []);
         } catch (err) {
-            console.error('搜尋使用者失敗:', err);
+            console.error('User search error:', err);
+            alert('搜尋失敗: ' + err.message);
         } finally {
             setSearching(false);
         }
     };
 
-    const handleUserSearchChange = (e) => {
-        const val = e.target.value;
-        setUserSearchTerm(val);
-        if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current);
-        searchTimeoutRef.current = setTimeout(() => searchUsers(val), 300);
-    };
-
-    const handleUserSelect = (profile) => {
-        setUserId(profile.id);
-        setUserSearchTerm(profile.line_display_name || '');
-        setShowUserDropdown(false);
-    };
-
-    // 點擊外部關閉下拉
-    React.useEffect(() => {
-        const handler = (e) => {
-            if (!e.target.closest('.user-search-container')) {
-                setShowUserDropdown(false);
-            }
-        };
-        document.addEventListener('click', handler);
-        return () => document.removeEventListener('click', handler);
-    }, []);
-
-    const handleVerify = async (e) => {
-        e.preventDefault();
-        setLoading(true);
-        try {
-            const { error } = await supabase.rpc('verify_user', {
-                p_user_id: userId,
-                p_customer_id: customerId,
-                p_line_group_display_name: lineGroupName,
-                p_phone: phone
-            });
-            if (error) throw error;
-            alert('使用者驗證成功！');
-            setUserId('');
-            setCustomerId('');
-            setLineGroupName('');
-            setPhone('');
-            setUserSearchTerm('');
-        } catch (err) {
-            alert('驗證失敗: ' + err.message);
-        } finally {
-            setLoading(false);
-        }
-    };
-
     return (
-        <form onSubmit={handleVerify}>
-            <div className="input-group">
-                <label>搜尋使用者 (LINE 名稱)</label>
-                <div className="user-search-container" style={{ position: 'relative' }}>
-                    <input
-                        type="text"
-                        value={userSearchTerm}
-                        onChange={handleUserSearchChange}
-                        onFocus={() => { if (userSearchResults.length > 0) setShowUserDropdown(true); }}
-                        placeholder="輸入 LINE 名稱搜尋..."
-                    />
-                    {searching && <div style={{ position: 'absolute', right: '10px', top: '50%', transform: 'translateY(-50%)', color: '#888', fontSize: '0.85rem' }}>搜尋中...</div>}
-                    {showUserDropdown && userSearchResults.length > 0 && (
-                        <div className="dropdown-list" style={{ maxHeight: '240px' }}>
-                            {userSearchResults.map(profile => (
-                                <div
-                                    key={profile.id}
-                                    className="dropdown-item"
-                                    onClick={() => handleUserSelect(profile)}
-                                    style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px 12px' }}
-                                >
-                                    <img
-                                        src={profile.picture_url || 'https://via.placeholder.com/36'}
-                                        alt=""
-                                        style={{ width: '36px', height: '36px', borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }}
-                                        onError={(e) => { e.target.src = 'https://via.placeholder.com/36'; }}
-                                    />
-                                    <div style={{ overflow: 'hidden' }}>
-                                        <div style={{ fontWeight: 'bold', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{profile.line_display_name || '(無名稱)'}</div>
-                                        <div style={{ fontSize: '0.75rem', color: '#888', fontFamily: 'monospace' }}>{profile.id.slice(0, 8)}...</div>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                    {showUserDropdown && userSearchResults.length === 0 && userSearchTerm.length >= 1 && !searching && (
-                        <div className="dropdown-list">
-                            <div className="dropdown-item no-results">找不到符合的使用者</div>
-                        </div>
-                    )}
+        <div className="admin-card glass-card">
+            <h2>使用者查詢</h2>
+            <form onSubmit={handleSearch}>
+                <div className="input-group">
+                    <label>輸入 LINE 群組顯示名稱</label>
+                    <div style={{ display: 'flex', gap: '10px' }}>
+                        <input
+                            type="text"
+                            style={{ flex: 1 }}
+                            value={searchTerm}
+                            onChange={e => setSearchTerm(e.target.value)}
+                            placeholder="支援模糊搜尋..."
+                        />
+                        <button type="submit" className="btn-primary" disabled={searching}>搜尋</button>
+                    </div>
                 </div>
-            </div>
-            <div className="input-group">
-                <label>使用者 ID (User ID)</label>
-                <input
-                    type="text"
-                    value={userId}
-                    onChange={(e) => setUserId(e.target.value)}
-                    placeholder="請輸入使用者 UUID 或從上方搜尋選取"
-                    required
-                />
-            </div>
-            <div className="input-group">
-                <label>鼠婦棲地使用者ID (選填)</label>
-                <input
-                    type="text"
-                    value={customerId}
-                    onChange={(e) => setCustomerId(e.target.value)}
-                    placeholder="C00001"
-                />
-            </div>
-            <div className="input-group">
-                <label>LINE 群組顯示名稱</label>
-                <input
-                    type="text"
-                    value={lineGroupName}
-                    onChange={(e) => setLineGroupName(e.target.value)}
-                    required
-                />
-            </div>
-            <div className="input-group">
-                <label>電話</label>
-                <input
-                    type="text"
-                    value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    required
-                />
-            </div>
-            <button type="submit" className="btn-primary w-full" disabled={loading}>
-                {loading ? '處理中...' : '提交驗證'}
-            </button>
-        </form>
+            </form>
+
+            {searchResults.length > 0 && (
+                <div style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                    {searchResults.map((user, idx) => (
+                        <div key={idx} style={{ padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px', display: 'flex', alignItems: 'center', gap: '15px' }}>
+                            <img src={user.picture_url || 'https://via.placeholder.com/40'} alt="avatar" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
+                            <div>
+                                <div style={{ fontWeight: 'bold', color: '#fff' }}>{user.line_group_display_name || '無群組名稱'}</div>
+                                <div style={{ fontSize: '0.85rem', color: '#ccc' }}>LINE 名稱：{user.line_display_name || '無'}</div>
+                                <div style={{ fontSize: '0.85rem', color: '#ccc' }}>電話：{user.phone || '無'}</div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {!searching && searchTerm && searchResults.length === 0 && (
+                <p style={{ marginTop: '1rem', color: '#aaa' }}>找不到符合條件的使用者。</p>
+            )}
+        </div>
     );
 };
 

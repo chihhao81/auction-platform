@@ -99,8 +99,29 @@ export const AuthProvider = ({ children }) => {
         if (error) throw error;
     };
 
+    const refreshProfile = async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session) return;
+        try {
+            const { data, error } = await supabase.from('profiles').select('*').eq('id', session.user.id).single();
+            if (!error && data) {
+                setUser(prev => ({
+                    ...prev,
+                    role: data.role,
+                    is_verified: data.is_verified,
+                    is_banned: data.is_banned,
+                    line_name: data.line_display_name,
+                    line_group_name: data.line_group_display_name,
+                    isAdmin: data.role === 'admin'
+                }));
+            }
+        } catch (err) {
+            console.error('refresh error', err);
+        }
+    };
+
     return (
-        <AuthContext.Provider value={{ user, login, logout, signup, resetPassword, loading, isAdmin: user?.isAdmin }}>
+        <AuthContext.Provider value={{ user, login, logout, signup, resetPassword, loading, isAdmin: user?.isAdmin, refreshProfile }}>
             {!loading && children}
         </AuthContext.Provider>
     );

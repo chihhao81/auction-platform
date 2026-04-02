@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { supabase } from '../utils/supabaseClient';
 import { useAuth } from './AuthContext';
-import { SUPABASE_URL } from '../utils/envConfig';
 import { ensureUTC, sortAuctions } from '../utils/auctionUtils';
 
 const AuctionContext = createContext();
@@ -36,20 +35,18 @@ export const AuctionProvider = ({ children }) => {
 
 
     const formatAuctionsData = (auctionsData) => {
-        const STORAGE_URL = `${SUPABASE_URL}/storage/v1/object/public/product_images`;
-
         return auctionsData.map(a => ({
             id: a.id,
             name: a.title,
             description: a.description,
-            image: `${STORAGE_URL}/${a.product_id}.jpg?t=${new Date(a.created_at).getTime()}`,
+            images: a.images || [],
+            image: a.images && a.images.length > 0 ? a.images[0] : null,
             startPrice: a.start_price,
             minIncrement: a.min_increment,
             startTime: ensureUTC(a.start_time),
             endTime: ensureUTC(a.end_time),
             createdAt: ensureUTC(a.created_at),
             status: a.status,
-            product_id: a.product_id,
             highest_bid: a.highest_bid,
             bid_count: a.bid_count,
             top_bidder_id: a.top_bidder_id,
@@ -66,7 +63,7 @@ export const AuctionProvider = ({ children }) => {
     const fetchRawData = async () => {
         const { data: auctionsData, error: auctionError } = await supabase
             .from('auctions_with_top_bids')
-            .select('id, title, description, product_id, start_price, min_increment, start_time, end_time, created_at, status, highest_bid, bid_count, top_bids, top_bidder_id');
+            .select('id, title, description, images, start_price, min_increment, start_time, end_time, created_at, status, highest_bid, bid_count, top_bids, top_bidder_id');
 
         if (auctionError) throw auctionError;
 

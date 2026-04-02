@@ -1,17 +1,108 @@
 import React, { useState, useEffect, useCallback, useRef, memo } from 'react';
 import { useAuction } from '../context/AuctionContext';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../utils/supabaseClient';
 import './Home.css';
+
+const ImageGrid = ({ images, onImageClick }) => {
+    if (!images || images.length === 0) return null;
+    const count = images.length;
+
+    if (count === 1) {
+        return (
+            <div className="image-grid image-grid-1" onClick={() => onImageClick(images[0], images)}>
+                <div className="grid-img" style={{ backgroundImage: `url(${images[0]})` }} />
+            </div>
+        );
+    }
+    if (count === 2) {
+        return (
+            <div className="image-grid image-grid-2" onClick={() => onImageClick(images[0], images)}>
+                <div className="grid-img" style={{ backgroundImage: `url(${images[0]})` }} />
+                <div className="grid-img" style={{ backgroundImage: `url(${images[1]})` }} />
+            </div>
+        );
+    }
+    if (count === 3) {
+        return (
+            <div className="image-grid image-grid-3" onClick={() => onImageClick(images[0], images)}>
+                <div className="grid-img grid-img-main" style={{ backgroundImage: `url(${images[0]})` }} />
+                <div className="grid-img-side">
+                    <div className="grid-img" style={{ backgroundImage: `url(${images[1]})` }} />
+                    <div className="grid-img" style={{ backgroundImage: `url(${images[2]})` }} />
+                </div>
+            </div>
+        );
+    }
+    // 4+ images
+    const extra = count - 4;
+    return (
+        <div className="image-grid image-grid-4" onClick={() => onImageClick(images[0], images)}>
+            <div className="grid-img grid-img-main" style={{ backgroundImage: `url(${images[0]})` }} />
+            <div className="grid-img-side">
+                <div className="grid-img" style={{ backgroundImage: `url(${images[1]})` }} />
+                <div className="grid-img" style={{ backgroundImage: `url(${images[2]})` }} />
+                <div className="grid-img grid-img-last" style={{ backgroundImage: `url(${images[3]})` }}>
+                    {extra > 0 && <div className="grid-img-overlay">+{extra}</div>}
+                </div>
+            </div>
+        </div>
+    );
+};
 
 const Home = () => {
     const { auctions, placeBid, fetchAuctions, fetchAuctionBidsDetail, loading: auctionLoading } = useAuction();
-    const { user } = useAuth();
+    const { user, refreshProfile } = useAuth();
+
+    const handleEditAuction = (auction) => {
+        // Dispatch custom event so Admin component can pick it up
+        window.dispatchEvent(new CustomEvent('admin-edit-auction', { detail: auction }));
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    };
+
+    const handleCloseAuction = async (auctionId) => {
+        if (!window.confirm('確定要關閉此競標嗎？')) return;
+        try {
+            const { error } = await supabase.rpc('close_auction', { p_auction_id: auctionId });
+            if (error) throw error;
+            alert('競標已關閉');
+            fetchAuctions();
+        } catch (err) {
+            alert('關閉失敗: ' + err.message);
+        }
+    };
     const [cooldown, setCooldown] = useState({});
+    const [verifyForm, setVerifyForm] = useState({ phone: '', line_group_name: '' });
+    const [verifying, setVerifying] = useState(false);
+
+    const handleSelfVerify = async (e) => {
+        e.preventDefault();
+        setVerifying(true);
+        try {
+            const { error } = await supabase.rpc('verify_user', {
+                p_user_id: user.id,
+                p_customer_id: null,
+                p_line_group_display_name: verifyForm.line_group_name,
+                p_phone: verifyForm.phone
+            });
+            if (error) throw error;
+            alert('驗證成功！您可以開始出價了');
+            await refreshProfile();
+            setVerifyModal({ show: false });
+        } catch (err) {
+            alert('驗證失敗: ' + err.message);
+        } finally {
+            setVerifying(false);
+        }
+    };
+
     const [historyModal, setHistoryModal] = useState({ show: false, bids: [], auctionName: '', loading: false });
     const [descModal, setDescModal] = useState({ show: false, content: '', title: '' });
     const [bidModal, setBidModal] = useState({ show: false, auctionId: null, auctionName: '', minBid: 0 });
     const [verifyModal, setVerifyModal] = useState({ show: false });
-    const [imgModal, setImgModal] = useState({ show: false, src: '' });
+    const [imgModal, setImgModal] = useState({ show: false, src: '', images: [] });
+    const [imgIndex, setImgIndex] = useState(0);
+    const [slideDir, setSlideDir] = useState('');
 
     const handleShowHistory = useCallback(async (auctionId, auctionName) => {
         setHistoryModal(prev => ({ ...prev, show: true, auctionName, bids: [], loading: true }));
@@ -105,7 +196,9 @@ const Home = () => {
                                 cooldown={cooldown}
                                 onShowHistory={handleShowHistory}
                                 setDescModal={setDescModal}
-                                onImageClick={(src) => setImgModal({ show: true, src })}
+                                onImageClick={(src, images) => { setImgIndex(0); setImgModal({ show: true, src, images }); }}
+                                onEditAuction={handleEditAuction}
+                                onCloseAuction={handleCloseAuction}
                             />
                         );
                     })}
@@ -151,48 +244,81 @@ const Home = () => {
 
             {verifyModal.show && (
                 <div className="modal-overlay" onClick={() => setVerifyModal({ show: false })}>
-                    <div className="modal-content glass-card desc-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '450px', textAlign: 'center' }}>
+                    <div className="modal-content glass-card desc-modal" onClick={e => e.stopPropagation()} style={{ maxWidth: '450px' }}>
                         <div className="modal-header">
-                            <h3 style={{ color: '#ff4d4f' }}>驗證提示</h3>
+                            <h3 style={{ color: '#ff4d4f' }}>自我驗證</h3>
                             <button className="close-btn" onClick={() => setVerifyModal({ show: false })}>&times;</button>
                         </div>
-                        <div className="modal-body">
-                            <h4 style={{ marginBottom: '1rem', fontSize: '1.2rem', color: '#fff' }}>您尚未通過人工驗證，請聯繫Line官方帳號。</h4>
-                            <div style={{ background: 'rgba(255,255,255,0.05)', padding: '1.5rem', borderRadius: '12px', margin: '1rem 0' }}>
-                                <p style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>
-                                    <a href="https://lin.ee/29HRA8aF" target="_blank" rel="noreferrer" style={{ color: '#00B900', textDecoration: 'none', fontWeight: 'bold' }}>
-                                        👉 加入連結 | https://lin.ee/29HRA8aF
-                                    </a>
-                                </p>
-                                <p style={{ marginBottom: '0.5rem', color: '#ccc' }}>或掃QR code</p>
-                                <img src="https://qr-official.line.me/gs/M_056qctjm_GW.png" alt="Line QR Code" style={{ width: '150px', height: '150px', borderRadius: '8px', marginBottom: '1rem', background: '#fff', padding: '5px' }} />
+                        <form onSubmit={handleSelfVerify}>
+                            <div className="modal-body" style={{ textAlign: 'left' }}>
+                                <p style={{ marginBottom: '1rem', color: '#fff' }}>為確保交易安全，首次出價前請完成驗證：</p>
+                                <div className="input-group">
+                                    <label>LINE 群組顯示名稱</label>
+                                    <input
+                                        type="text"
+                                        value={verifyForm.line_group_name}
+                                        onChange={e => setVerifyForm(prev => ({ ...prev, line_group_name: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.8rem', boxSizing: 'border-box' }}
+                                    />
+                                </div>
+                                <div className="input-group" style={{ marginTop: '1rem' }}>
+                                    <label>聯絡電話</label>
+                                    <input
+                                        type="tel"
+                                        value={verifyForm.phone}
+                                        onChange={e => setVerifyForm(prev => ({ ...prev, phone: e.target.value }))}
+                                        required
+                                        style={{ width: '100%', padding: '0.8rem', boxSizing: 'border-box' }}
+                                    />
+                                </div>
                             </div>
-                            <p style={{ color: '#888', fontSize: '0.9rem' }}>如果連接失效，請直接搜尋Line ID <strong style={{ color: '#fff' }}>@056qctjm</strong></p>
-                        </div>
-                        <div className="modal-footer" style={{ justifyContent: 'center' }}>
-                            <button className="btn-primary" onClick={() => setVerifyModal({ show: false })}>我知道了</button>
-                        </div>
+                            <div className="modal-footer" style={{ justifyContent: 'center' }}>
+                                <button type="submit" className="btn-primary" disabled={verifying} style={{ width: '100%' }}>
+                                    {verifying ? '驗證中...' : '提交驗證'}
+                                </button>
+                            </div>
+                        </form>
                     </div>
                 </div>
             )}
 
-            {imgModal.show && (
-                <div className="modal-overlay image-modal-overlay" onClick={() => setImgModal({ show: false, src: '' })}>
-                    <div className="image-modal-content" onClick={e => e.stopPropagation()}>
-                        <img src={imgModal.src} alt="Full size" className="full-image-preview" />
-                        <button className="close-btn circle" onClick={() => setImgModal({ show: false, src: '' })}>&times;</button>
+            {imgModal.show && (() => {
+                const allImages = imgModal.images?.length > 0 ? imgModal.images : [imgModal.src];
+                const total = allImages.length;
+                const goLeft = () => { setSlideDir('slide-left'); setImgIndex(prev => (prev - 1 + total) % total); };
+                const goRight = () => { setSlideDir('slide-right'); setImgIndex(prev => (prev + 1) % total); };
+                return (
+                    <div className="modal-overlay image-modal-overlay" onClick={() => setImgModal({ show: false, src: '', images: [] })}>
+                        <button className="close-btn circle" onClick={() => setImgModal({ show: false, src: '', images: [] })}>×</button>
+                        <div className="image-modal-content" onClick={e => e.stopPropagation()}>
+                            <div className="carousel-viewport">
+                                <div className={`carousel-slide ${slideDir}`} key={imgIndex}>
+                                    <img src={allImages[imgIndex]} alt={`Full size ${imgIndex + 1}`} className="full-image-preview" />
+                                </div>
+                            </div>
+                            {total > 1 && (
+                                <>
+                                    <button className="carousel-arrow carousel-arrow-left" onClick={goLeft}>&#8249;</button>
+                                    <button className="carousel-arrow carousel-arrow-right" onClick={goRight}>&#8250;</button>
+                                    <div className="carousel-indicator">{imgIndex + 1} / {total}</div>
+                                </>
+                            )}
+                        </div>
                     </div>
-                </div>
-            )}
+                );
+            })()}
         </div>
             );
         };
         
-        const AuctionCard = memo(({ auction, user, isUpcoming, isEnded, handleBid, cooldown, onShowHistory, setDescModal, onImageClick }) => {
+        const AuctionCard = memo(({ auction, user, isUpcoming, isEnded, handleBid, cooldown, onShowHistory, setDescModal, onImageClick, onEditAuction, onCloseAuction }) => {
     const currentPrice = auction.bids.length > 0 ? auction.bids[0].amount : auction.startPrice;
     const [isTension, setIsTension] = useState(false);
     const descRef = useRef(null);
     const [isOverflow, setIsOverflow] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef(null);
 
     useEffect(() => {
         const el = descRef.current;
@@ -201,18 +327,44 @@ const Home = () => {
         }
     }, [auction.description]);
 
+    // Close menu on outside click
+    useEffect(() => {
+        if (!menuOpen) return;
+        const handleClickOutside = (e) => {
+            if (menuRef.current && !menuRef.current.contains(e.target)) {
+                setMenuOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [menuOpen]);
+
+    const showAdminMenu = user?.isAdmin && !isEnded;
+
     return (
         <div id={`auction-${auction.id}`} className={`product-card glass-card ${isUpcoming ? 'is-upcoming' : ''} ${isEnded ? 'is-ended' : ''} ${isTension ? 'tension-pulse' : ''}`}>
-            <div 
-                className="product-image" 
-                style={{ backgroundImage: `url(${auction.image})`, cursor: 'pointer' }}
-                onClick={() => onImageClick(auction.image)}
-            >
+            <div className="product-image-area">
+                <ImageGrid images={auction.images} onImageClick={onImageClick} />
                 {isUpcoming && <div className="status-overlay upcoming">即將開始</div>}
                 {isEnded && <div className="status-overlay ended">已結束</div>}
             </div>
             <div className="product-info">
-                <h3>{auction.name}</h3>
+                <div className="product-title-row">
+                    <h3>{auction.name}</h3>
+                    {showAdminMenu && (
+                        <div className="admin-menu-wrapper" ref={menuRef}>
+                            <button className="admin-dots-btn" onClick={() => setMenuOpen(prev => !prev)}>
+                                ⋯
+                            </button>
+                            {menuOpen && (
+                                <div className="admin-dropdown">
+                                    <button onClick={() => { setMenuOpen(false); onEditAuction(auction); }}>✏️ 編輯</button>
+                                    <button className="danger" onClick={() => { setMenuOpen(false); onCloseAuction(auction.id); }}>🚫 關閉</button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
                 {auction.description && (
                     <div
                         className={`product-description ${isOverflow ? 'clickable' : ''}`}
