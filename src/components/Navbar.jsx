@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import pkg from '../../package.json';
 import { isTestEnv } from '../utils/envConfig';
@@ -6,11 +7,12 @@ import './Navbar.css';
 
 const Navbar = () => {
     const { user, logout } = useAuth();
+    const navigate = useNavigate();
     const version = pkg.version;
 
     return (
         <nav className="navbar glass-card">
-            <div className="nav-brand">
+            <div className="nav-brand" onClick={() => navigate('/')} style={{ cursor: 'pointer' }}>
                 <h1>
                     <span className="brand-title">特寵競標平台</span>
                     {isTestEnv && <span className="test-badge">測試台</span>}
@@ -24,6 +26,7 @@ const Navbar = () => {
                             {user.line_group_name || user.line_name || '使用者'}
                         </span>
                         {user.isAdmin && <span className="badge-admin">Admin</span>}
+                        <button onClick={() => navigate('/chat')} className="btn-chat">訊息</button>
                         <button onClick={logout} className="btn-logout">登出</button>
                     </>
                 ) : (

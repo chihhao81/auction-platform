@@ -7,6 +7,7 @@ import Login from './pages/Login';
 import LoginError from './pages/LoginError';
 import Admin from './pages/Admin';
 import ResetPassword from './pages/ResetPassword';
+import Chat from './pages/Chat';
 import { useAuth } from './context/AuthContext';
 import './styles/global.css';
 
@@ -32,6 +33,7 @@ function App() {
               )
             } />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route path="/chat" element={user ? <Chat /> : <Navigate to="/" replace />} />
             <Route path="/login-error" element={<LoginError />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
