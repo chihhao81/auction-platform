@@ -69,6 +69,33 @@ const AuctionManager = () => {
     });
     const [imageFiles, setImageFiles] = useState([]);
 
+    // Seller Search States
+    const [sellerSearchTerm, setSellerSearchTerm] = useState('');
+    const [sellerSearchResults, setSellerSearchResults] = useState([]);
+    const [sellerSearching, setSellerSearching] = useState(false);
+    const [selectedSeller, setSelectedSeller] = useState(null);
+
+    const handleSellerSearch = async (e) => {
+        e.preventDefault();
+        if (!sellerSearchTerm) return;
+        setSellerSearching(true);
+        try {
+            const { data, error } = await supabase
+                .from('profiles')
+                .select('id, line_group_display_name, picture_url')
+                .ilike('line_group_display_name', `%${sellerSearchTerm}%`)
+                .limit(10);
+            if (error) throw error;
+            setSellerSearchResults(data || []);
+        } catch (err) {
+            console.error('Seller search error:', err);
+            alert('搜尋賣家失敗: ' + err.message);
+        } finally {
+            setSellerSearching(false);
+        }
+    };
+
+
     // Listen for edit requests from AuctionCard three-dot menu
     useEffect(() => {
         const handleEditEvent = (e) => {
@@ -152,11 +179,13 @@ const AuctionManager = () => {
                 if (error) throw error;
                 alert('編輯成功！');
             } else {
+                if (!selectedSeller) return alert('請選擇賣家');
                 const { error } = await supabase.rpc('create_auction', {
                     p_description: formData.description || '',
                     p_end_time: finalEndTime.toISOString(),
                     p_images: imageUrls,
                     p_min_increment: Number(formData.minIncrement),
+                    p_seller_id: selectedSeller.id,
                     p_start_price: Number(formData.startPrice),
                     p_start_time: finalStartTime.toISOString(),
                     p_title: formData.title
@@ -187,6 +216,9 @@ const AuctionManager = () => {
         setExistingImages([]);
         setEditMode(false);
         setEditingId(null);
+        setSelectedSeller(null);
+        setSellerSearchTerm('');
+        setSellerSearchResults([]);
     };
 
     const handleEdit = (auction) => {
@@ -232,6 +264,52 @@ const AuctionManager = () => {
                         required
                     />
                 </div>
+
+                {!editMode && (
+                    <div className="input-group">
+                        <label>賣家</label>
+                        {selectedSeller ? (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '15px', padding: '10px', background: 'rgba(255,255,255,0.05)', borderRadius: '8px' }}>
+                                <img src={selectedSeller.picture_url || 'https://via.placeholder.com/40'} alt="avatar" style={{ width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover' }} />
+                                <div style={{ color: '#fff', fontWeight: 'bold', flex: 1 }}>{selectedSeller.line_group_display_name || '無名稱'}</div>
+                                <button type="button" className="btn-secondary" onClick={() => setSelectedSeller(null)} style={{ padding: '5px 10px', fontSize: '0.9rem' }}>重新選擇</button>
+                            </div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ display: 'flex', gap: '10px' }}>
+                                    <input
+                                        type="text"
+                                        style={{ flex: 1 }}
+                                        value={sellerSearchTerm}
+                                        onChange={e => setSellerSearchTerm(e.target.value)}
+                                        placeholder="輸入名稱搜尋賣家..."
+                                        onKeyDown={e => {
+                                            if (e.key === 'Enter') {
+                                                e.preventDefault();
+                                                handleSellerSearch(e);
+                                            }
+                                        }}
+                                    />
+                                    <button type="button" className="btn-primary" onClick={handleSellerSearch} disabled={sellerSearching}>搜尋</button>
+                                </div>
+                                {sellerSearchResults.length > 0 && (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '5px', maxHeight: '150px', overflowY: 'auto' }}>
+                                        {sellerSearchResults.map(user => (
+                                            <div 
+                                                key={user.id} 
+                                                style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '8px', background: 'rgba(255,255,255,0.05)', borderRadius: '6px', cursor: 'pointer' }}
+                                                onClick={() => { setSelectedSeller(user); setSellerSearchResults([]); setSellerSearchTerm(''); }}
+                                            >
+                                                <img src={user.picture_url || 'https://via.placeholder.com/30'} alt="avatar" style={{ width: '30px', height: '30px', borderRadius: '50%', objectFit: 'cover' }} />
+                                                <span style={{ color: '#fff', fontSize: '0.9rem' }}>{user.line_group_display_name || '無名稱'}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+                    </div>
+                )}
 
                 <div className="input-group">
                     <label>圖片</label>

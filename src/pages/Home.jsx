@@ -365,6 +365,12 @@ const Home = () => {
                         </div>
                     )}
                 </div>
+                {auction.sellerName && (
+                    <div className="seller-info" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                        <img src={auction.sellerAvatar || 'https://via.placeholder.com/24'} alt="seller avatar" style={{ width: '24px', height: '24px', borderRadius: '50%', objectFit: 'cover', border: '1px solid var(--glass-border)' }} />
+                        <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>提供者：<span style={{ color: 'var(--text-primary)', fontWeight: 'bold' }}>{auction.sellerName}</span></span>
+                    </div>
+                )}
                 {auction.description && (
                     <div
                         className={`product-description ${isOverflow ? 'clickable' : ''}`}

@@ -50,6 +50,8 @@ export const AuctionProvider = ({ children }) => {
             highest_bid: a.highest_bid,
             bid_count: a.bid_count,
             top_bidder_id: a.top_bidder_id,
+            sellerName: a.seller_name,
+            sellerAvatar: a.seller_avatar,
             bids: (a.top_bids || []).map(b => ({
                 id: Math.random().toString(36).substring(7),
                 email: b.user_id || 'guest',
@@ -63,7 +65,7 @@ export const AuctionProvider = ({ children }) => {
     const fetchRawData = async () => {
         const { data: auctionsData, error: auctionError } = await supabase
             .from('auctions_with_top_bids')
-            .select('id, title, description, images, start_price, min_increment, start_time, end_time, created_at, status, highest_bid, bid_count, top_bids, top_bidder_id');
+            .select('id, title, description, images, start_price, min_increment, start_time, end_time, created_at, status, highest_bid, bid_count, top_bids, top_bidder_id, seller_name, seller_avatar');
 
         if (auctionError) throw auctionError;
 
