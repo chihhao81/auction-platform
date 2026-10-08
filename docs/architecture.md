@@ -1,8 +1,8 @@
-# 架構（Phase 1）
+# 架構（Phase 1–2）
 
 ## 階段決策：展示版先行
 
-目前前端採用展示模式：首頁按「使用展示帳號登入」直接進入 `/marketplace`，使用明確標示的 mock 商品資料。展示登入不建立平台身分，不呼叫 LINE 或 Backend。搜尋、分類、狀態切換和收藏為前端互動；出價、刊登與個人紀錄僅顯示尚未接通的提示。
+首頁按「使用展示帳號登入」直接進入 `/marketplace`，使用明確標示的 mock 商品資料，不建立平台身分。Phase 2 另新增 `/auctions` 真實列表／詳情／出價與刊登編輯頁面，經 `/v1/*` 呼叫 Backend；受保護操作需真實 LINE session，仍等 Phase 1B 部署後驗收。
 
 真實 LINE Login、session、條款接受與 PostgreSQL 的前後端端到端驗收延至 Phase 1B：前端及 Go Backend 先部署到可透過 HTTPS 存取的環境，才設定正式 callback 並測試。不要為這個流程在本機建立 HTTPS tunnel 或執行真實 LINE 登入。LINE/API 程式碼可留待部署時整合。
 
@@ -26,7 +26,11 @@ Session 是 HMAC 簽章、24 小時效期的 HttpOnly cookie。受保護 API 每
 
 ## Database
 
-初始 migration 建立 `users`、`user_terms`，包含 LINE ID 唯一鍵、使用者狀態檢核、FK 與條款版本唯一鍵。所有時間使用 `timestamptz`。目前資料存取使用 `database/sql` 加 pgx v5 driver 和明確 SQL；Phase 1 查詢不需要 ORM。
+初始 migration 建立 `users`、`user_terms`，Phase 2 migration 增加 `auctions`、`auction_images`、`bids`，包含 FK、價格檢核、開始結束檢核與查詢索引。所有時間使用 `timestamptz`。資料存取使用 `database/sql` 加 pgx v5 driver 和明確 SQL，不引入 ORM；目前需求下明確 SQL 便於看清 transaction 與鎖定邏輯。
+
+競標狀態依 UTC 的開始／結束時間即時計算，結束 24 小時後進入 CLOSED。建立競標以 PostgreSQL transaction advisory lock 串行化同一賣家的 5 筆上限檢查。出價 transaction 對競標 row `FOR UPDATE`，同一交易內寫 bids、更新目前價格／最高出價者及反競標延長時間，避免並發低價覆蓋與結標競態。
+
+商品圖片放在 OCI Backend 的持久化磁碟目錄（`UPLOAD_DIR`），不另加圖片 SaaS／儲存費用。上傳只接受 JPEG／PNG／GIF，驗證副檔名、實際 MIME、圖片格式、單張 4 MB 和 2000 萬像素上限；服務端以隨機 ID 儲存，且資料庫確認圖片已附加至尚未 CLOSED 的競標才提供下載。此 Toy Version 僅單一 Backend 主機，部署時必須把 `UPLOAD_DIR` 指向持久化磁碟；主機／磁碟損毀仍需備份，未提供多機共享或 CDN。
 
 條款 v1 已核可，Runtime 文案位於 `backend/terms/v1.txt`，由 `TERMS_TEXT_FILE` 讀取。若設定檔路徑無法讀取，Backend 啟動失敗。平台營運者聯絡資料尚待補入條文。
 

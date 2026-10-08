@@ -17,7 +17,10 @@ func NewRouter() http.Handler {
 }
 
 func NewRouterWithConfig(db *sql.DB, cfg Config) http.Handler {
-	app := &App{db: db, cfg: cfg}
+	app := &App{db: db, cfg: cfg, uploadDir: cfg.UploadDir}
+	if app.uploadDir == "" {
+		app.uploadDir = "./uploads"
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -28,6 +31,14 @@ func NewRouterWithConfig(db *sql.DB, cfg Config) http.Handler {
 	mux.HandleFunc("POST /v1/terms/accept", app.acceptTerms)
 	mux.HandleFunc("GET /v1/me", app.currentUser)
 	mux.HandleFunc("POST /v1/logout", app.logout)
+	mux.HandleFunc("GET /v1/auctions", app.listAuctions)
+	mux.HandleFunc("POST /v1/auctions", app.createAuction)
+	mux.HandleFunc("GET /v1/auctions/{id}", app.getAuction)
+	mux.HandleFunc("PATCH /v1/auctions/{id}", app.updateAuction)
+	mux.HandleFunc("POST /v1/auctions/{id}/bids", app.placeBid)
+	mux.HandleFunc("POST /v1/uploads", app.uploadAuctionImage)
+	mux.HandleFunc("GET /v1/uploads/{id}", app.serveAuctionImage)
+	mux.HandleFunc("DELETE /v1/uploads/{id}", app.deleteAuctionImage)
 	return app.cors(mux)
 }
 

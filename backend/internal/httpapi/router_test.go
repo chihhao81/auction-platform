@@ -103,6 +103,14 @@ func TestConfiguredFrontendOriginGetsCredentialedCORS(t *testing.T) {
 	if got := response.Header().Get("Access-Control-Allow-Credentials"); got != "true" {
 		t.Fatalf("Access-Control-Allow-Credentials = %q", got)
 	}
+	request = httptest.NewRequest(http.MethodOptions, "/v1/auctions/1", nil)
+	request.Header.Set("Origin", "http://localhost:3000")
+	request.Header.Set("Access-Control-Request-Method", "PATCH")
+	response = httptest.NewRecorder()
+	NewRouterWithConfig(nil, cfg).ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent || !strings.Contains(response.Header().Get("Access-Control-Allow-Methods"), "PATCH") {
+		t.Fatalf("PATCH preflight rejected: status=%d methods=%q", response.Code, response.Header().Get("Access-Control-Allow-Methods"))
+	}
 	request = httptest.NewRequest(http.MethodGet, "/v1/health", nil)
 	request.Header.Set("Origin", "https://attacker.example")
 	response = httptest.NewRecorder()

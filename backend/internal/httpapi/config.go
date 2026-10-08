@@ -16,6 +16,7 @@ type Config struct {
 	TermsVersion      string
 	TermsText         string
 	TermsLoadError    string
+	UploadDir         string
 	CookieSecure      bool
 	CookieSameSite    string
 }
@@ -40,6 +41,7 @@ func ConfigFromEnv() Config {
 		TermsVersion:      env("TERMS_VERSION", "v1"),
 		TermsText:         termsText,
 		TermsLoadError:    termsLoadError,
+		UploadDir:         env("UPLOAD_DIR", "./uploads"),
 		CookieSecure:      os.Getenv("SESSION_COOKIE_SECURE") == "true",
 		CookieSameSite:    strings.ToLower(env("SESSION_COOKIE_SAMESITE", "lax")),
 	}

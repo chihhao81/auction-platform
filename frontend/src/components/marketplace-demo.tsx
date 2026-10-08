@@ -58,9 +58,10 @@ export function MarketplaceDemo() {
           <span>小島<span className="brandLight">競標</span></span>
         </Link>
         <nav className="marketNav" aria-label="平台導覽">
-          <a className="marketNavActive" href="#auctions">競標市集</a>
+          <Link href="/auctions">真實競標</Link>
+          <a className="marketNavActive" href="#auctions">展示市集</a>
           <button type="button" onClick={() => setNotice("展示模式：個人競標紀錄將於後續階段開放。")}>我的競標</button>
-          <button type="button" onClick={() => setNotice("展示模式：刊登功能將於後續階段開放。")}>刊登商品</button>
+          <Link href="/marketplace/new">刊登商品</Link>
         </nav>
         <div className="marketUser"><span className="marketAvatar">豪</span><span><strong>展示會員</strong><small>Demo account</small></span><button type="button" aria-label="登出展示帳號" onClick={() => window.location.assign("/")}>登出</button></div>
       </header>
@@ -89,7 +90,7 @@ export function MarketplaceDemo() {
           <div className="auctionGrid">
             {filteredAuctions.map((auction) => <article className="auctionCard" key={auction.id}>
               <div className={`auctionVisual ${auction.theme}`}><span className="auctionBadge">{auction.badge}</span><button className={favorites.includes(auction.id) ? "favoriteButton favoriteActive" : "favoriteButton"} type="button" onClick={() => toggleFavorite(auction.id)} aria-label={favorites.includes(auction.id) ? "取消收藏" : "加入收藏"}>{favorites.includes(auction.id) ? "♥" : "♡"}</button><span className="animalEmoji" aria-hidden="true">{auction.icon}</span><span className="visualCaption">ISLAND FINDS <i>✳</i></span></div>
-              <div className="auctionInfo"><span className="auctionSpecies">{auction.species}</span><h3>{auction.title}</h3><div className="sellerLine"><span className="sellerAvatar">{auction.seller.slice(0, 1)}</span><span>{auction.seller}</span><span className="sellerRating">★ 4.9</span></div><div className="auctionDivider" /><div className="auctionNumbers"><div><small>目前出價</small><strong>NT$ {money.format(auction.currentPrice)}</strong><span>{auction.bids} 次出價</span></div><div className="timeLeft"><small>{auction.status === "進行中" ? "距離結標" : "開始時間"}</small><strong>{auction.remaining}</strong></div></div><button className="bidButton" type="button" onClick={() => setNotice("這是展示畫面，實際出價功能會在後續階段開發。")}>{auction.status === "進行中" ? "查看競標" : "設定提醒"}<span aria-hidden="true">↗</span></button></div>
+              <div className="auctionInfo"><span className="auctionSpecies">{auction.species}</span><h3>{auction.title}</h3><div className="sellerLine"><span className="sellerAvatar">{auction.seller.slice(0, 1)}</span><span>{auction.seller}</span><span className="sellerRating">★ 4.9</span></div><div className="auctionDivider" /><div className="auctionNumbers"><div><small>目前出價</small><strong>NT$ {money.format(auction.currentPrice)}</strong><span>{auction.bids} 次出價</span></div><div className="timeLeft"><small>{auction.status === "進行中" ? "距離結標" : "開始時間"}</small><strong>{auction.remaining}</strong></div></div><Link className="bidButton" href="/auctions">前往真實競標<span aria-hidden="true">↗</span></Link></div>
             </article>)}
             {filteredAuctions.length === 0 && <div className="emptyAuctions"><span>⌕</span><strong>沒有找到符合條件的商品</strong><p>試試其他關鍵字或分類。</p></div>}
           </div>

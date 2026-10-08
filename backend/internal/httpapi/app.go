@@ -8,8 +8,9 @@ import (
 )
 
 type App struct {
-	db  *sql.DB
-	cfg Config
+	db        *sql.DB
+	cfg       Config
+	uploadDir string
 }
 
 func (a *App) cors(next http.Handler) http.Handler {
@@ -22,7 +23,7 @@ func (a *App) cors(next http.Handler) http.Handler {
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Add("Vary", "Origin")
 			if r.Method == http.MethodOptions {
-				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 				w.WriteHeader(http.StatusNoContent)
 				return
