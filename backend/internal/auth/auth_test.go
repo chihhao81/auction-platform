@@ -1,0 +1,265 @@
+package auth
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/google/uuid"
+	"github.com/pashagolub/pgxmock/v4"
+
+	"auction-platform/backend/internal/apperr"
+	"auction-platform/backend/internal/database/db"
+	"auction-platform/backend/internal/store"
+	"auction-platform/backend/internal/terms"
+)
+
+var fixedNow = time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
+
+func newMockService(t *testing.T, admins map[string]bool) (*Service, pgxmock.PgxPoolIface) {
+	t.Helper()
+	mock, err := pgxmock.NewPool()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := mock.ExpectationsWereMet(); err != nil {
+			t.Error(err)
+		}
+		mock.Close()
+	})
+	svc := NewService(store.New(mock), MockLineClient{FrontendURL: "http://front"}, admins, time.Hour, func() time.Time { return fixedNow })
+	return svc, mock
+}
+
+var upsertCols = []string{"id", "line_user_id", "display_name", "avatar_url", "role", "status", "created_at", "updated_at", "created"}
+
+func TestLoginCreatesUserAndSession(t *testing.T) {
+	svc, mock := newMockService(t, map[string]bool{"mock-boss": true})
+	id := uuid.New()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO users").
+		WithArgs("mock-boss", "Mock boss", "", RoleAdmin).
+		WillReturnRows(pgxmock.NewRows(upsertCols).AddRow(id, "mock-boss", "Mock boss", "", RoleAdmin, StatusActive, fixedNow, fixedNow, true))
+	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(pgxmock.AnyArg(), "USER_CREATE", "USER", id.String(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), fixedNow).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectExec("INSERT INTO sessions").WithArgs(pgxmock.AnyArg(), id, pgxmock.AnyArg(), pgxmock.AnyArg(), fixedNow, fixedNow.Add(time.Hour)).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(pgxmock.AnyArg(), "LOGIN", "USER", id.String(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), fixedNow).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectCommit()
+
+	res, err := svc.Login(context.Background(), "mock:boss")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Token == "" || res.User.Role != RoleAdmin || !res.ExpiresAt.Equal(fixedNow.Add(time.Hour)) {
+		t.Fatalf("unexpected result %+v", res)
+	}
+}
+
+func TestLoginRejectsBannedUserWithoutSession(t *testing.T) {
+	svc, mock := newMockService(t, nil)
+	id := uuid.New()
+
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO users").WithArgs("mock-bad", "Mock bad", "", RoleUser).
+		WillReturnRows(pgxmock.NewRows(upsertCols).AddRow(id, "mock-bad", "Mock bad", "", RoleUser, StatusBanned, fixedNow, fixedNow, false))
+	// Only the rejection is audited: no USER_CREATE (existing user) and no session.
+	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(pgxmock.AnyArg(), "LOGIN_REJECTED_BANNED", "USER", id.String(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), fixedNow).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectCommit()
+
+	_, err := svc.Login(context.Background(), "mock:bad")
+	if !IsBanned(err) {
+		t.Fatalf("expected banned error, got %v", err)
+	}
+}
+
+func TestLoginRollsBackOnFailure(t *testing.T) {
+	svc, mock := newMockService(t, nil)
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO users").WithArgs("mock-x", "Mock x", "", RoleUser).WillReturnError(context.DeadlineExceeded)
+	mock.ExpectRollback()
+	if _, err := svc.Login(context.Background(), "mock:x"); err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestLoginRejectsInvalidCode(t *testing.T) {
+	svc, _ := newMockService(t, nil)
+	_, err := svc.Login(context.Background(), "not-a-mock-code")
+	if !apperr.IsCode(err, "LINE_LOGIN_FAILED") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAcceptTermsVersionMismatch(t *testing.T) {
+	svc, _ := newMockService(t, nil)
+	err := svc.AcceptTerms(context.Background(), &CurrentUser{User: db.User{ID: uuid.New()}}, "old")
+	if !apperr.IsCode(err, "TERMS_VERSION_MISMATCH") {
+		t.Fatalf("got %v", err)
+	}
+}
+
+func TestAcceptTermsRecordsAudit(t *testing.T) {
+	svc, mock := newMockService(t, nil)
+	id := uuid.New()
+	mock.ExpectBegin()
+	mock.ExpectExec("INSERT INTO user_terms").WithArgs(id, terms.CurrentVersion, fixedNow).WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(pgxmock.AnyArg(), "TERMS_ACCEPT", "USER", id.String(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), fixedNow).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectCommit()
+	if err := svc.AcceptTerms(context.Background(), &CurrentUser{User: db.User{ID: id}}, terms.CurrentVersion); err != nil {
+		t.Fatal(err)
+	}
+}
+
+var sessionCols = []string{"id", "line_user_id", "display_name", "avatar_url", "role", "status", "created_at", "updated_at", "terms_accepted"}
+
+func TestLoadUserIgnoresBannedUsers(t *testing.T) {
+	for _, tc := range []struct {
+		status string
+		want   bool
+	}{{StatusActive, true}, {StatusBanned, false}} {
+		t.Run(tc.status, func(t *testing.T) {
+			svc, mock := newMockService(t, nil)
+			mock.ExpectQuery("FROM sessions").WithArgs(terms.CurrentVersion, hashToken("tok"), fixedNow).
+				WillReturnRows(pgxmock.NewRows(sessionCols).AddRow(uuid.New(), "L", "n", "", RoleUser, tc.status, fixedNow, fixedNow, true))
+			var got *CurrentUser
+			h := svc.LoadUser(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { got = UserFromContext(r.Context()) }))
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "tok"})
+			h.ServeHTTP(httptest.NewRecorder(), req)
+			if (got != nil) != tc.want {
+				t.Fatalf("user attached = %v, want %v", got != nil, tc.want)
+			}
+		})
+	}
+}
+
+func TestAuthorizationMiddleware(t *testing.T) {
+	member := &CurrentUser{User: db.User{Role: RoleUser}, TermsAccepted: true}
+	noTerms := &CurrentUser{User: db.User{Role: RoleUser}, TermsAccepted: false}
+	admin := &CurrentUser{User: db.User{Role: RoleAdmin}, TermsAccepted: true}
+	ok := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusOK) })
+
+	cases := []struct {
+		name string
+		mw   func(http.Handler) http.Handler
+		user *CurrentUser
+		want int
+	}{
+		{"user anonymous", RequireUser, nil, 401},
+		{"user without terms", RequireUser, noTerms, 200},
+		{"member anonymous", RequireMember, nil, 401},
+		{"member without terms", RequireMember, noTerms, 403},
+		{"member ok", RequireMember, member, 200},
+		{"admin as member", RequireAdmin, member, 403},
+		{"admin without terms", RequireAdmin, &CurrentUser{User: db.User{Role: RoleAdmin}}, 403},
+		{"admin ok", RequireAdmin, admin, 200},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			if tc.user != nil {
+				req = req.WithContext(WithUser(req.Context(), tc.user))
+			}
+			rec := httptest.NewRecorder()
+			tc.mw(ok).ServeHTTP(rec, req)
+			if rec.Code != tc.want {
+				t.Fatalf("status = %d, want %d", rec.Code, tc.want)
+			}
+		})
+	}
+}
+
+func TestCallbackRejectsStateMismatch(t *testing.T) {
+	svc, _ := newMockService(t, nil)
+	h := NewHandler(svc, MockLineClient{}, "http://front", false, true)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/line/callback?code=mock:a&state=attacker", nil)
+	req.AddCookie(&http.Cookie{Name: stateCookieName, Value: "victim"})
+	rec := httptest.NewRecorder()
+	h.callback(rec, req)
+	if loc := rec.Header().Get("Location"); loc != "http://front/login?error=INVALID_STATE" {
+		t.Fatalf("Location = %q", loc)
+	}
+}
+
+func TestMockLoginRedirectsToCallback(t *testing.T) {
+	svc, _ := newMockService(t, nil)
+	h := NewHandler(svc, MockLineClient{FrontendURL: "http://front"}, "http://front", false, true)
+	rec := httptest.NewRecorder()
+	h.login(rec, httptest.NewRequest(http.MethodGet, "/api/auth/line/login?mock_user=alice&next=//evil", nil))
+	loc, err := url.Parse(rec.Header().Get("Location"))
+	if err != nil || loc.Path != "/api/auth/line/callback" || loc.Query().Get("code") != "mock:alice" || loc.Query().Get("state") == "" {
+		t.Fatalf("Location = %v", loc)
+	}
+	cookies := rec.Header().Values("Set-Cookie")
+	if !strings.Contains(strings.Join(cookies, ";"), nextCookieName+"=%2F") {
+		t.Fatalf("open redirect next should be sanitized to /: %v", cookies)
+	}
+}
+
+func TestHTTPLineClientExchange(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/oauth2/v2.1/token":
+			_ = r.ParseForm()
+			if r.Form.Get("code") != "c1" || r.Form.Get("client_secret") != "sec" || r.Form.Get("redirect_uri") != "https://app/cb" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"access_token": "at"})
+		case "/v2/profile":
+			if r.Header.Get("Authorization") != "Bearer at" {
+				w.WriteHeader(http.StatusUnauthorized)
+				return
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"userId": "U123", "displayName": "Gecko", "pictureUrl": "https://p/x.jpg"})
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	c := NewHTTPLineClient("cid", "sec", "https://app/cb")
+	c.APIBase = srv.URL
+	p, err := c.Exchange(context.Background(), "c1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.UserID != "U123" || p.DisplayName != "Gecko" || p.PictureURL != "https://p/x.jpg" {
+		t.Fatalf("profile = %+v", p)
+	}
+	if _, err := c.Exchange(context.Background(), "wrong"); err == nil {
+		t.Fatal("expected error for rejected code")
+	}
+	if u := c.AuthURL("st"); !strings.Contains(u, "state=st") || !strings.Contains(u, "client_id=cid") || strings.Contains(u, "sec") {
+		t.Fatalf("AuthURL = %s", u)
+	}
+}
+
+func TestSanitizers(t *testing.T) {
+	if got := sanitizeAvatarURL("javascript:alert(1)"); got != "" {
+		t.Errorf("javascript url kept: %q", got)
+	}
+	if got := sanitizeAvatarURL("http://insecure/x.png"); got != "" {
+		t.Errorf("http url kept: %q", got)
+	}
+	if got := sanitizeAvatarURL("https://profile.line-scdn.net/abc"); got == "" {
+		t.Error("https url dropped")
+	}
+	if got := sanitizeDisplayName("   "); got != "LINE 使用者" {
+		t.Errorf("blank name = %q", got)
+	}
+	if got := sanitizeDisplayName(strings.Repeat("守", 150)); len([]rune(got)) != maxNameLength {
+		t.Errorf("long name not truncated: %d", len([]rune(got)))
+	}
+}

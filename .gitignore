@@ -1,0 +1,14 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# backend
+backend/bin/
+backend/uploads/
+backend/*.exe
+
+# editors / OS
+.DS_Store
+.idea/
+.vscode/
