@@ -49,7 +49,24 @@ func (m *memStorage) count() int {
 	return len(m.files)
 }
 
+// recorder is a notify.Dispatcher that remembers what was dispatched.
+type recorder struct {
+	mu   sync.Mutex
+	sent []db.Notification
+}
+
+func (r *recorder) Dispatch(n []db.Notification) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.sent = append(r.sent, n...)
+}
+
 func newTestService(t *testing.T, now time.Time) (*Service, pgxmock.PgxPoolIface, *memStorage) {
+	svc, mock, files, _ := newTestServiceWithRecorder(t, now)
+	return svc, mock, files
+}
+
+func newTestServiceWithRecorder(t *testing.T, now time.Time) (*Service, pgxmock.PgxPoolIface, *memStorage, *recorder) {
 	t.Helper()
 	mock, err := pgxmock.NewPool()
 	if err != nil {
@@ -62,13 +79,15 @@ func newTestService(t *testing.T, now time.Time) (*Service, pgxmock.PgxPoolIface
 		mock.Close()
 	})
 	files := newMemStorage()
-	return NewService(store.New(mock), files, func() time.Time { return now }), mock, files
+	rec := &recorder{}
+	return NewService(store.New(mock), files, rec, func() time.Time { return now }), mock, files, rec
 }
 
 var auctionCols = []string{
 	"id", "seller_id", "title", "description", "start_price", "min_increment", "max_increment",
 	"current_price", "highest_bidder_id", "bid_count", "start_time", "end_time", "original_end_time",
 	"contact_info", "shipping_method", "shipping_fee", "created_at", "updated_at",
+	"settled_at", "ending_soon_notified_at",
 }
 
 func auctionRows(a db.Auction) *pgxmock.Rows {
@@ -76,6 +95,7 @@ func auctionRows(a db.Auction) *pgxmock.Rows {
 		a.ID, a.SellerID, a.Title, a.Description, a.StartPrice, a.MinIncrement, a.MaxIncrement,
 		a.CurrentPrice, a.HighestBidderID, a.BidCount, a.StartTime, a.EndTime, a.OriginalEndTime,
 		a.ContactInfo, a.ShippingMethod, a.ShippingFee, a.CreatedAt, a.UpdatedAt,
+		a.SettledAt, a.EndingSoonNotifiedAt,
 	)
 }
 
@@ -87,8 +107,10 @@ func expectAudit(mock pgxmock.PgxPoolIface, action string) {
 		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 }
 
-func TestPlaceBidSuccess(t *testing.T) {
-	svc, mock, _ := newTestService(t, t0)
+var notificationCols = []string{"id", "user_id", "type", "title", "content", "related_auction_id", "related_order_id", "read_at", "created_at"}
+
+func TestPlaceBidSuccessNotifiesOutbidUser(t *testing.T) {
+	svc, mock, _, rec := newTestServiceWithRecorder(t, t0)
 	a := activeAuction()
 	a.HighestBidderID, a.BidCount = uuid.NullUUID{UUID: bob, Valid: true}, 1
 	updated := a
@@ -102,6 +124,9 @@ func TestPlaceBidSuccess(t *testing.T) {
 	mock.ExpectQuery("UPDATE auctions").WithArgs(a.ID, int64(1200), uuid.NullUUID{UUID: alice, Valid: true}, a.EndTime, t0).
 		WillReturnRows(auctionRows(updated))
 	expectAudit(mock, "BID_PLACE")
+	mock.ExpectQuery("INSERT INTO notifications").
+		WithArgs(bob, "OUTBID", pgxmock.AnyArg(), pgxmock.AnyArg(), uuid.NullUUID{UUID: a.ID, Valid: true}, uuid.NullUUID{}, t0).
+		WillReturnRows(pgxmock.NewRows(notificationCols).AddRow(uuid.New(), bob, "OUTBID", "t", "c", uuid.NullUUID{UUID: a.ID, Valid: true}, uuid.NullUUID{}, (*time.Time)(nil), t0))
 	mock.ExpectCommit()
 
 	res, err := svc.PlaceBid(context.Background(), alice, a.ID, 1200)
@@ -110,6 +135,9 @@ func TestPlaceBidSuccess(t *testing.T) {
 	}
 	if res.Extended || res.Auction.CurrentPrice != 1200 || res.PreviousBidder.UUID != bob {
 		t.Fatalf("unexpected result %+v", res)
+	}
+	if len(rec.sent) != 1 || rec.sent[0].UserID != bob {
+		t.Fatalf("outbid notification should be dispatched after commit: %+v", rec.sent)
 	}
 }
 

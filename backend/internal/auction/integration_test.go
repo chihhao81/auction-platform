@@ -11,6 +11,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"auction-platform/backend/internal/apperr"
+	"auction-platform/backend/internal/notify"
 	"auction-platform/backend/internal/store"
 	"auction-platform/backend/internal/testdb"
 )
@@ -34,7 +35,7 @@ func insertAuction(t *testing.T, pool *pgxpool.Pool, sellerID uuid.UUID, title s
 
 func TestIntegrationConcurrentSamePriceBids(t *testing.T) {
 	pool := testdb.New(t)
-	svc := NewService(store.New(pool), newMemStorage(), func() time.Time { return time.Now().UTC() })
+	svc := NewService(store.New(pool), newMemStorage(), notify.Noop{}, func() time.Time { return time.Now().UTC() })
 	now := time.Now().UTC()
 	sellerID := testdb.CreateUser(t, pool, "seller")
 	// min == max: exactly one legal next bid, so only one of N racers may win.
@@ -87,7 +88,7 @@ func TestIntegrationConcurrentSamePriceBids(t *testing.T) {
 
 func TestIntegrationConcurrentMixedBidsNeverLowerPrice(t *testing.T) {
 	pool := testdb.New(t)
-	svc := NewService(store.New(pool), newMemStorage(), func() time.Time { return time.Now().UTC() })
+	svc := NewService(store.New(pool), newMemStorage(), notify.Noop{}, func() time.Time { return time.Now().UTC() })
 	now := time.Now().UTC()
 	sellerID := testdb.CreateUser(t, pool, "seller")
 	id := insertAuction(t, pool, sellerID, "mixed", now.Add(-time.Hour), now.Add(time.Hour), 0, 10, 1000)
@@ -142,7 +143,7 @@ func TestIntegrationConcurrentMixedBidsNeverLowerPrice(t *testing.T) {
 func TestIntegrationBidExtendsEndTime(t *testing.T) {
 	pool := testdb.New(t)
 	now := time.Now().UTC().Truncate(time.Microsecond)
-	svc := NewService(store.New(pool), newMemStorage(), func() time.Time { return now })
+	svc := NewService(store.New(pool), newMemStorage(), notify.Noop{}, func() time.Time { return now })
 	sellerID := testdb.CreateUser(t, pool, "seller")
 	bidder := testdb.CreateUser(t, pool, "bidder")
 	end := now.Add(30 * time.Second)
@@ -167,7 +168,7 @@ func TestIntegrationBidExtendsEndTime(t *testing.T) {
 func TestIntegrationOpenAuctionLimitUnderConcurrency(t *testing.T) {
 	pool := testdb.New(t)
 	now := time.Now().UTC()
-	svc := NewService(store.New(pool), newMemStorage(), func() time.Time { return now })
+	svc := NewService(store.New(pool), newMemStorage(), notify.Noop{}, func() time.Time { return now })
 	sellerID := testdb.CreateUser(t, pool, "seller")
 	png := pngBytes(t)
 
@@ -202,7 +203,7 @@ func TestIntegrationOpenAuctionLimitUnderConcurrency(t *testing.T) {
 func TestIntegrationSearchAndPrices(t *testing.T) {
 	pool := testdb.New(t)
 	now := time.Now().UTC()
-	svc := NewService(store.New(pool), newMemStorage(), func() time.Time { return now })
+	svc := NewService(store.New(pool), newMemStorage(), notify.Noop{}, func() time.Time { return now })
 	sellerID := testdb.CreateUser(t, pool, "seller")
 	active := insertAuction(t, pool, sellerID, "豹紋守宮 active", now.Add(-time.Hour), now.Add(time.Hour), 0, 50, 50)
 	upcoming := insertAuction(t, pool, sellerID, "鼠婦 upcoming", now.Add(time.Hour), now.Add(3*time.Hour), 0, 50, 50)

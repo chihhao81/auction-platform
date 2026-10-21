@@ -14,6 +14,7 @@ import (
 	"auction-platform/backend/internal/audit"
 	"auction-platform/backend/internal/database/db"
 	"auction-platform/backend/internal/imageproc"
+	"auction-platform/backend/internal/notify"
 	"auction-platform/backend/internal/storage"
 	"auction-platform/backend/internal/store"
 )
@@ -31,13 +32,14 @@ var (
 )
 
 type Service struct {
-	store *store.Store
-	files storage.Storage
-	now   func() time.Time
+	store    *store.Store
+	files    storage.Storage
+	dispatch notify.Dispatcher
+	now      func() time.Time
 }
 
-func NewService(st *store.Store, files storage.Storage, now func() time.Time) *Service {
-	return &Service{store: st, files: files, now: now}
+func NewService(st *store.Store, files storage.Storage, d notify.Dispatcher, now func() time.Time) *Service {
+	return &Service{store: st, files: files, dispatch: d, now: now}
 }
 
 // Upload is one uploaded image file. Filename is only used for its extension.
@@ -281,6 +283,7 @@ type BidResult struct {
 // one, and the clock is read only after the lock is held.
 func (s *Service) PlaceBid(ctx context.Context, bidder, auctionID uuid.UUID, amount int64) (BidResult, error) {
 	var res BidResult
+	var batch notify.Batch
 	err := s.store.InTx(ctx, func(q *db.Queries) error {
 		a, err := q.GetAuctionForUpdate(ctx, auctionID)
 		if store.IsNoRows(err) {
@@ -320,8 +323,20 @@ func (s *Service) PlaceBid(ctx context.Context, bidder, auctionID uuid.UUID, amo
 		}); err != nil {
 			return err
 		}
+		if a.HighestBidderID.Valid && a.HighestBidderID.UUID != bidder {
+			if err := batch.Add(ctx, q, now, notify.Message{
+				UserID: a.HighestBidderID.UUID, Type: notify.TypeOutbid, AuctionID: a.ID, Title: "您的出價已被超越",
+				Content: fmt.Sprintf("「%s」目前價格 %s。", a.Title, notify.FormatPrice(amount)),
+			}); err != nil {
+				return err
+			}
+		}
 		res = BidResult{Bid: bid, Auction: updated, Extended: extended, PreviousBidder: a.HighestBidderID}
 		return nil
 	})
-	return res, err
+	if err != nil {
+		return BidResult{}, err
+	}
+	s.dispatch.Dispatch(batch)
+	return res, nil
 }

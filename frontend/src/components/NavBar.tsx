@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useAuth } from "@/lib/auth";
+import { NotificationBell } from "./NotificationBell";
 
 export function NavBar() {
   const { state } = useAuth();
@@ -12,6 +13,14 @@ export function NavBar() {
           🦎 Critter Bid
         </Link>
         <div className="flex items-center gap-3 text-sm">
+          {state.status === "authenticated" && state.me.terms.accepted && (
+            <>
+              <Link href="/orders" className="hover:underline">
+                訂單
+              </Link>
+              <NotificationBell />
+            </>
+          )}
           {state.status === "authenticated" ? (
             <Link href="/me" className="flex items-center gap-2 hover:underline">
               {state.me.user.avatar_url ? (

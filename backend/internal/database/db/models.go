@@ -11,24 +11,26 @@ import (
 )
 
 type Auction struct {
-	ID              uuid.UUID     `json:"id"`
-	SellerID        uuid.UUID     `json:"seller_id"`
-	Title           string        `json:"title"`
-	Description     string        `json:"description"`
-	StartPrice      int64         `json:"start_price"`
-	MinIncrement    int64         `json:"min_increment"`
-	MaxIncrement    int64         `json:"max_increment"`
-	CurrentPrice    int64         `json:"current_price"`
-	HighestBidderID uuid.NullUUID `json:"highest_bidder_id"`
-	BidCount        int32         `json:"bid_count"`
-	StartTime       time.Time     `json:"start_time"`
-	EndTime         time.Time     `json:"end_time"`
-	OriginalEndTime time.Time     `json:"original_end_time"`
-	ContactInfo     string        `json:"contact_info"`
-	ShippingMethod  string        `json:"shipping_method"`
-	ShippingFee     int64         `json:"shipping_fee"`
-	CreatedAt       time.Time     `json:"created_at"`
-	UpdatedAt       time.Time     `json:"updated_at"`
+	ID                   uuid.UUID     `json:"id"`
+	SellerID             uuid.UUID     `json:"seller_id"`
+	Title                string        `json:"title"`
+	Description          string        `json:"description"`
+	StartPrice           int64         `json:"start_price"`
+	MinIncrement         int64         `json:"min_increment"`
+	MaxIncrement         int64         `json:"max_increment"`
+	CurrentPrice         int64         `json:"current_price"`
+	HighestBidderID      uuid.NullUUID `json:"highest_bidder_id"`
+	BidCount             int32         `json:"bid_count"`
+	StartTime            time.Time     `json:"start_time"`
+	EndTime              time.Time     `json:"end_time"`
+	OriginalEndTime      time.Time     `json:"original_end_time"`
+	ContactInfo          string        `json:"contact_info"`
+	ShippingMethod       string        `json:"shipping_method"`
+	ShippingFee          int64         `json:"shipping_fee"`
+	CreatedAt            time.Time     `json:"created_at"`
+	UpdatedAt            time.Time     `json:"updated_at"`
+	SettledAt            *time.Time    `json:"settled_at"`
+	EndingSoonNotifiedAt *time.Time    `json:"ending_soon_notified_at"`
 }
 
 type AuctionImage struct {
@@ -59,6 +61,63 @@ type Bid struct {
 	BidderID  uuid.UUID `json:"bidder_id"`
 	Amount    int64     `json:"amount"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+type Notification struct {
+	ID               uuid.UUID     `json:"id"`
+	UserID           uuid.UUID     `json:"user_id"`
+	Type             string        `json:"type"`
+	Title            string        `json:"title"`
+	Content          string        `json:"content"`
+	RelatedAuctionID uuid.NullUUID `json:"related_auction_id"`
+	RelatedOrderID   uuid.NullUUID `json:"related_order_id"`
+	ReadAt           *time.Time    `json:"read_at"`
+	CreatedAt        time.Time     `json:"created_at"`
+}
+
+type NotificationPreference struct {
+	UserID      uuid.UUID `json:"user_id"`
+	Type        string    `json:"type"`
+	PushEnabled bool      `json:"push_enabled"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type Order struct {
+	ID              uuid.UUID  `json:"id"`
+	BuyerID         uuid.UUID  `json:"buyer_id"`
+	SellerID        uuid.UUID  `json:"seller_id"`
+	ItemsTotal      int64      `json:"items_total"`
+	ShippingFee     int64      `json:"shipping_fee"`
+	TotalAmount     int64      `json:"total_amount"`
+	Status          string     `json:"status"`
+	ContactDeadline time.Time  `json:"contact_deadline"`
+	ContactedAt     *time.Time `json:"contacted_at"`
+	OverdueAt       *time.Time `json:"overdue_at"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
+type OrderItem struct {
+	ID          uuid.UUID     `json:"id"`
+	AuctionID   uuid.UUID     `json:"auction_id"`
+	BuyerID     uuid.UUID     `json:"buyer_id"`
+	SellerID    uuid.UUID     `json:"seller_id"`
+	Amount      int64         `json:"amount"`
+	ShippingFee int64         `json:"shipping_fee"`
+	OrderID     uuid.NullUUID `json:"order_id"`
+	WonAt       time.Time     `json:"won_at"`
+	CreatedAt   time.Time     `json:"created_at"`
+}
+
+type PushSubscription struct {
+	ID        uuid.UUID `json:"id"`
+	UserID    uuid.UUID `json:"user_id"`
+	Endpoint  string    `json:"endpoint"`
+	P256dh    string    `json:"p256dh"`
+	Auth      string    `json:"auth"`
+	UserAgent string    `json:"user_agent"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 type Session struct {

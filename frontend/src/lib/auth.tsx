@@ -3,6 +3,7 @@
 import { Suspense, createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { ApiError, api } from "./api";
+import { disablePush } from "./push";
 import type { Me } from "./types";
 
 type AuthState =
@@ -35,6 +36,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    // Stop this browser receiving the account's pushes (shared devices).
+    await disablePush().catch(() => {});
     try {
       await api.post("/api/auth/logout");
     } catch (e) {

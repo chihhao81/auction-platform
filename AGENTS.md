@@ -100,6 +100,28 @@
 * **真實 PostgreSQL 整合測試**（併發出價、併發建立競標上限、搜尋 SQL、延長、audit log append-only trigger）以 `TEST_DATABASE_URL` 啟用；每個測試建立獨立 schema 並在結束後 DROP，可安全指向 Neon dev branch。未設定時自動 skip。
 * 前端：Vitest + Testing Library，測試 API client（CSRF header、錯誤對應）、時區轉換、出價 UX 規則、表單驗證與預設值。
 
+### ADR-14: 定時處理與結標（Phase 3）
+* `internal/scheduler`：server 內單一迴圈，啟動時先跑一次，之後每 `SCHEDULER_INTERVAL`（預設 1m，可設 10s~1h）執行；tick 不重疊、每次以 interval 為 timeout、panic 會被 recover。
+* `internal/settlement` 三個 job，**皆冪等且可併發執行**（多實例或重跑都不會重複）：
+  1. **即將結束通知**：`UPDATE ... SET ending_soon_notified_at ... RETURNING` 原子認領「10 分鐘內結束、有出價」的競標，通知所有出價者一次。
+  2. **結標**：鎖 auction row → 再確認已結束且未結標（被延長的不處理）→ `settled_at` → 有得標者則寫 `order_items`（得標紀錄，`order_id` NULL＝等待合併）並通知得標/未得標/賣家；無人出價通知賣家。若賣家尚有 10 分鐘內結束的競標，另通知得標者「等待其他競標結束」。
+  3. **成立訂單**：對有待合併得標紀錄的賣家，鎖住這些紀錄並重新檢查「賣家是否仍有未結標且於 now+10 分鐘內結束的競標」（每次重算，延長或新進入窗口都會繼續等待）；不再有時，依買家分組，每組成立一筆 `AWAITING_CONTACT` 訂單，`contact_deadline`＝成立後 24 小時。
+* **合併運費**：同一筆訂單多件商品取各商品運費的**最高值**（合併寄送一個包裹）。
+
+### ADR-15: 通知與 Web Push（Phase 3）
+* 站內通知 `notifications` 與業務變更**同一交易**寫入（`notify.Batch.Add`）；交易 commit 後才 `Dispatcher.Dispatch` 推播，推播失敗只記 log，不影響主流程。
+* `notify.Pusher`：goroutine 送出、最多 4 個併發、每則 30 秒 timeout；shutdown 時等待在途推播。push service 回 404/410 即刪除該 subscription。
+* **SSRF 防護**：subscription endpoint 只接受 https 且主機為已知 push service（FCM、Mozilla、Apple、Windows），寫入與發送時都檢查；p256dh/auth 驗證長度（65/16 bytes）。
+* 使用者可按通知類型關閉**推播**（`notification_preferences` 只存 opt-out），站內通知一律保留。
+* VAPID 私鑰只在 backend env（`go run ./cmd/vapidkeys` 產生）；前端由 `GET /api/push/public-key` 取公鑰。未設定時推播停用、站內通知照常。
+* 瀏覽器通知權限只在使用者按「開啟此裝置推播」時請求；登出時會刪除此瀏覽器的 subscription（共用裝置不會收到前一位使用者的推播）。
+* 前端未讀數每 30 秒 polling（頁面隱藏時暫停）。
+
+### ADR-16: 訂單狀態機
+* `order.CanTransition` 定義完整轉換表；`order.Transition` 以 `UPDATE ... WHERE status = from` 條件更新（併發下只有一個成功）並寫 Audit Log。各轉換由誰觸發由各功能自行檢查（Phase 4）。
+* 已付款後不可直接取消，需經 DISPUTED 由管理員處理（涉及退款）。
+* 訂單只有買賣雙方可讀，其他人一律回 404（不洩漏存在與否）；賣家的「額外聯絡方式」只顯示給該訂單買家。
+
 ### ADR-13: Next.js 16 注意事項
 * 本專案使用 Next.js 16.4（`cacheComponents` + `partialPrefetching` 開啟）。與舊版差異大，開發前請閱讀 `frontend/node_modules/next/dist/docs/`（`frontend/AGENTS.md` 亦有提醒）。
 * 使用 `useSearchParams()` / `usePathname()` / `useParams()` 的 Client Component 必須包在 `<Suspense>` 內，否則 build 失敗（`RequireMember` 已內建 Suspense）。
@@ -124,11 +146,13 @@
   * 首頁：關鍵字（ILIKE，跳脫 `%` `_`）+ 狀態搜尋、CLOSED 不顯示、單一 API `/api/auctions/prices?ids=` 每 5 秒批次更新
   * 詳細頁（進行中時 5 秒刷新）、出價紀錄、我的競標（我賣的 / 我出價的 × 狀態）
   * Audit：AUCTION_CREATE / AUCTION_UPDATE（含欄位 diff）/ BID_PLACE（含延長資訊）
-* [ ] **Phase 3: 得標、合併訂單與通知**
-  * 結標判定與得標紀錄
-  * 同賣家 10 分鐘內多商品合併訂單等待邏輯
-  * 站內通知清單、通知偏好設定
-  * Web Push API（非阻塞式推播、Subscription 表管理、410/404 刪除失效 subscription）
+* [x] **Phase 3: 得標、合併訂單與通知**（2026-10-21；Neon 整合測試 11/11 通過）
+  * 定時結標、得標紀錄（`order_items`）、10 分鐘合併等待與重算、訂單成立
+  * 通知：出價被超越、即將結束、得標、未得標、賣家結標/無人出價、等待合併、訂單成立
+  * 站內通知清單、未讀數、全部已讀、推播偏好設定
+  * Web Push（VAPID、subscription 管理、失效自動刪除、SSRF 白名單）
+  * 訂單狀態機、訂單列表 / 詳細頁（買賣雙方）
+  * Audit：AUCTION_SETTLE / ORDER_CREATE（系統操作 actor 為 NULL）/ ORDER_STATUS_CHANGE
 * [ ] **Phase 4: 綠界付款、出貨與訂單訊息**
   * Order 狀態機（AWAITING_CONTACT, AWAITING_PAYMENT, PAID...）
   * 綠界 ECPay 付款整合、後端驗證與冪等性（Idempotency）保護
@@ -168,10 +192,12 @@
 6. **24 小時未聯絡**：訂單狀態不變，加上「逾期」標記，寫 Audit Log 並自動建立檢舉買家（交管理員處理）。
 7. **買家寄件資訊**：付款後由買家於訂單填寫，僅該訂單賣家可見。
 8. **第一口出價**：維持 `start_price + min_increment ~ start_price + max_increment`。
+9. **合併訂單運費**取最高值（見 ADR-14），如需改為加總再調整 `settlement.totals`。
 
 ## 6. 待確認事項
 
 1. 綠界：需要測試環境商店代號 / HashKey / HashIV（可先用綠界公開測試帳號）。
+2. 「競標即將開始」通知：目前沒有「關注 / 收藏」功能，無合適收件者，尚未實作。是否要加收藏功能？
 
 ## 7. 本機開發
 

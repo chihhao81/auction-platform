@@ -36,7 +36,22 @@ type Config struct {
 
 	// UploadDir is where the local storage backend keeps images.
 	UploadDir string
+
+	// The scheduler settles ended auctions, merges orders and sends timed
+	// notifications. Disable it on extra instances sharing a database if
+	// desired (jobs are idempotent, so running twice is still safe).
+	SchedulerEnabled  bool
+	SchedulerInterval time.Duration
+
+	// Web Push (VAPID). Push is disabled when the keys are empty. The private
+	// key must only ever live in the backend environment.
+	VAPIDPublicKey  string
+	VAPIDPrivateKey string
+	VAPIDSubject    string
 }
+
+// PushEnabled reports whether Web Push is configured.
+func (c *Config) PushEnabled() bool { return c.VAPIDPublicKey != "" && c.VAPIDPrivateKey != "" }
 
 func (c *Config) IsProduction() bool { return c.Env == "production" }
 
@@ -60,6 +75,9 @@ func load(getenv func(string) string) (*Config, error) {
 		LineRedirectURI:   get("LINE_REDIRECT_URI", ""),
 		ClientIPHeader:    get("CLIENT_IP_HEADER", ""),
 		UploadDir:         get("UPLOAD_DIR", "./uploads"),
+		VAPIDPublicKey:    get("VAPID_PUBLIC_KEY", ""),
+		VAPIDPrivateKey:   get("VAPID_PRIVATE_KEY", ""),
+		VAPIDSubject:      get("VAPID_SUBJECT", ""),
 		AdminLineUserIDs:  map[string]bool{},
 	}
 	var errs []error
@@ -74,6 +92,13 @@ func load(getenv func(string) string) (*Config, error) {
 	c.MigrateOnStart = parseBool("MIGRATE_ON_START", true)
 	c.MockLineAuth = parseBool("MOCK_LINE_AUTH", false)
 	c.CookieSecure = parseBool("COOKIE_SECURE", c.IsProduction())
+	c.SchedulerEnabled = parseBool("SCHEDULER_ENABLED", true)
+
+	interval, err := time.ParseDuration(get("SCHEDULER_INTERVAL", "1m"))
+	if err != nil || interval < 10*time.Second || interval > time.Hour {
+		errs = append(errs, fmt.Errorf("SCHEDULER_INTERVAL must be between 10s and 1h"))
+	}
+	c.SchedulerInterval = interval
 
 	ttl, err := time.ParseDuration(get("SESSION_TTL", "168h"))
 	if err != nil || ttl <= 0 {
@@ -101,6 +126,12 @@ func load(getenv func(string) string) (*Config, error) {
 	}
 	if !c.MockLineAuth && (c.LineChannelID == "" || c.LineChannelSecret == "" || c.LineRedirectURI == "") {
 		errs = append(errs, errors.New("LINE_CHANNEL_ID, LINE_CHANNEL_SECRET and LINE_REDIRECT_URI are required unless MOCK_LINE_AUTH=true"))
+	}
+	if (c.VAPIDPublicKey == "") != (c.VAPIDPrivateKey == "") {
+		errs = append(errs, errors.New("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set together"))
+	}
+	if c.PushEnabled() && !strings.HasPrefix(c.VAPIDSubject, "mailto:") && !strings.HasPrefix(c.VAPIDSubject, "https://") {
+		errs = append(errs, errors.New("VAPID_SUBJECT must be a mailto: or https: URL when push is enabled"))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, err

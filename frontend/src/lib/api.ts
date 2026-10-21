@@ -69,5 +69,5 @@ export const api = {
   get: <T>(path: string, signal?: AbortSignal) => apiRequest<T>(path, { signal }),
   post: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: "POST", body }),
   put: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: "PUT", body }),
-  del: <T>(path: string) => apiRequest<T>(path, { method: "DELETE" }),
+  del: <T>(path: string, body?: unknown) => apiRequest<T>(path, { method: "DELETE", body }),
 };

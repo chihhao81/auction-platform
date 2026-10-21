@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { formatTaipei } from "@/lib/time";
 import { MyAuctions } from "./MyAuctions";
+import { NotificationSettings } from "./NotificationSettings";
 
 export function ProfileView() {
   const { state, logout } = useAuth();
@@ -37,6 +38,7 @@ export function ProfileView() {
         </button>
       </section>
       <MyAuctions />
+      <NotificationSettings />
     </div>
   );
 }

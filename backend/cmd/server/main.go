@@ -16,7 +16,11 @@ import (
 	"auction-platform/backend/internal/auth"
 	"auction-platform/backend/internal/config"
 	"auction-platform/backend/internal/database"
+	"auction-platform/backend/internal/notify"
+	"auction-platform/backend/internal/order"
+	"auction-platform/backend/internal/scheduler"
 	"auction-platform/backend/internal/server"
+	"auction-platform/backend/internal/settlement"
 	"auction-platform/backend/internal/storage"
 	"auction-platform/backend/internal/store"
 )
@@ -62,12 +66,35 @@ func run() error {
 	now := func() time.Time { return time.Now().UTC() }
 	authSvc := auth.NewService(st, line, cfg.AdminLineUserIDs, cfg.SessionTTL, now)
 	files := &storage.Local{Dir: cfg.UploadDir, BaseURL: "/uploads"}
-	auctionSvc := auction.NewService(st, files, now)
+
+	var dispatcher notify.Dispatcher = notify.Noop{}
+	var pusher *notify.Pusher
+	if cfg.PushEnabled() {
+		pusher = notify.NewPusher(st, notify.VAPIDSender(cfg.VAPIDPublicKey, cfg.VAPIDPrivateKey, cfg.VAPIDSubject))
+		dispatcher = pusher
+	} else {
+		slog.Warn("VAPID keys not set: Web Push disabled (in-app notifications still work)")
+	}
+
+	auctionSvc := auction.NewService(st, files, dispatcher, now)
+	orderSvc := order.NewService(st, files, now)
+	settlementSvc := settlement.NewService(st, dispatcher, now)
+
+	var schedulerDone chan struct{}
+	if cfg.SchedulerEnabled {
+		schedulerDone = make(chan struct{})
+		go func() {
+			defer close(schedulerDone)
+			slog.Info("scheduler started", "interval", cfg.SchedulerInterval.String())
+			scheduler.Run(ctx, cfg.SchedulerInterval, scheduler.Job{Name: "settlement", Run: settlementSvc.RunOnce})
+		}()
+	}
 
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: server.NewRouter(server.Deps{
-			Config: cfg, Store: st, Auth: authSvc, Line: line, Auction: auctionSvc, Uploads: files,
+			Config: cfg, Store: st, Auth: authSvc, Line: line, Auction: auctionSvc, Order: orderSvc,
+			Uploads: files, Now: now,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       2 * time.Minute, // image uploads from mobile networks
@@ -86,7 +113,15 @@ func run() error {
 		}
 	case <-ctx.Done():
 	}
+	stop() // also stops the scheduler
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	return srv.Shutdown(shutdownCtx)
+	err = srv.Shutdown(shutdownCtx)
+	if schedulerDone != nil {
+		<-schedulerDone
+	}
+	if pusher != nil {
+		pusher.Wait(shutdownCtx) // let in-flight pushes finish
+	}
+	return err
 }

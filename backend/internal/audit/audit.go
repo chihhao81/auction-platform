@@ -25,12 +25,16 @@ const (
 	ActionAuctionCreate     = "AUCTION_CREATE"
 	ActionAuctionUpdate     = "AUCTION_UPDATE"
 	ActionBidPlace          = "BID_PLACE"
+	ActionAuctionSettle     = "AUCTION_SETTLE"
+	ActionOrderCreate       = "ORDER_CREATE"
+	ActionOrderStatus       = "ORDER_STATUS_CHANGE"
 )
 
 // Target types recorded in audit_logs.target_type.
 const (
 	TargetUser    = "USER"
 	TargetAuction = "AUCTION"
+	TargetOrder   = "ORDER"
 )
 
 type Inserter interface {

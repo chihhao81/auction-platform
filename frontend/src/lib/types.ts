@@ -96,3 +96,72 @@ export interface BidResponse {
   next_bid_min: number;
   next_bid_max: number;
 }
+
+export interface AppNotification {
+  id: string;
+  type: string;
+  title: string;
+  content: string;
+  related_auction_id: string | null;
+  related_order_id: string | null;
+  link: string;
+  read_at: string | null;
+  created_at: string;
+}
+
+export interface NotificationPreference {
+  type: string;
+  label: string;
+  push_enabled: boolean;
+}
+
+export type OrderStatus =
+  | "AWAITING_CONTACT"
+  | "AWAITING_PAYMENT"
+  | "PAID"
+  | "AWAITING_SHIPMENT"
+  | "SHIPPED"
+  | "RECEIVED"
+  | "COMPLETED"
+  | "CANCELLED"
+  | "DISPUTED";
+
+export interface OrderSummary {
+  id: string;
+  status: OrderStatus;
+  total_amount: number;
+  item_count: number;
+  counterparty_name: string;
+  overdue: boolean;
+  created_at: string;
+}
+
+export interface OrderParty {
+  id: string;
+  display_name: string;
+  avatar_url: string;
+}
+
+export interface OrderDetail {
+  id: string;
+  status: OrderStatus;
+  role: "buyer" | "seller";
+  buyer: OrderParty;
+  seller: OrderParty;
+  items: {
+    auction_id: string;
+    title: string;
+    amount: number;
+    shipping_fee: number;
+    shipping_method: string;
+    image_url: string;
+  }[];
+  items_total: number;
+  shipping_fee: number;
+  total_amount: number;
+  contact_deadline: string;
+  contacted_at: string | null;
+  overdue: boolean;
+  seller_contact: string[];
+  created_at: string;
+}

@@ -1,4 +1,4 @@
-# API 文件（Phase 1–2）
+# API 文件（Phase 1–3）
 
 * Base path：`/api`（瀏覽器經 Next.js rewrites 代理至 Go backend）
 * 時間：一律 UTC ISO-8601；金額：新台幣整數
@@ -111,3 +111,65 @@ Body `{"amount":1100}`。合法範圍 `current_price + min_increment ~ current_p
 
 ### `GET /uploads/auctions/{uuid}.jpg` — 公開
 本地儲存模式下由 backend 提供（僅接受伺服器產生的 key 格式）。
+
+## 訂單（Phase 3）
+
+訂單由定時 job 在結標後建立（同賣家、同買家的得標商品在賣家沒有 10 分鐘內結束的競標時合併為一筆）。只有買賣雙方可讀取，其他人回 404。
+
+### `GET /api/orders?role=buyer|seller&page=1` — 會員
+```json
+{"items":[{"id":"uuid","status":"AWAITING_CONTACT","total_amount":1350,"item_count":2,
+           "counterparty_name":"…","overdue":false,"created_at":"…"}]}
+```
+
+### `GET /api/orders/{id}` — 會員（僅買賣雙方）
+```json
+{"order":{
+  "id":"uuid","status":"AWAITING_CONTACT","role":"buyer",
+  "buyer":{"id":"…","display_name":"…","avatar_url":"…"},"seller":{…},
+  "items":[{"auction_id":"…","title":"…","amount":500,"shipping_fee":100,"shipping_method":"…","image_url":"…"}],
+  "items_total":1200,"shipping_fee":150,"total_amount":1350,
+  "contact_deadline":"…","contacted_at":null,"overdue":false,
+  "seller_contact":["line: …"],
+  "created_at":"…"}}
+```
+`seller_contact` 只對買家回傳內容（賣家看到空陣列）。合併訂單運費取各商品運費最高值。
+
+訂單狀態：`AWAITING_CONTACT` → `AWAITING_PAYMENT` → `PAID` → `AWAITING_SHIPMENT` → `SHIPPED` → `RECEIVED` → `COMPLETED`；另有 `CANCELLED`、`DISPUTED`。狀態只能由後端依規則轉換。
+
+## 通知（Phase 3）
+
+### `GET /api/notifications?page=1` — 會員
+每頁 30 筆，新到舊。
+```json
+{"items":[{"id":"uuid","type":"OUTBID","title":"…","content":"…","related_auction_id":"uuid","related_order_id":null,
+           "link":"/auctions/uuid","read_at":null,"created_at":"…"}],"has_more":false}
+```
+類型：`OUTBID`、`AUCTION_ENDING_SOON`、`AUCTION_WON`、`AUCTION_LOST`、`AUCTION_SOLD`、`AUCTION_UNSOLD`、`ORDER_WAITING`、`ORDER_CREATED`（Phase 4 起另有 `ORDER_STATUS_CHANGED`、`MESSAGE_RECEIVED`）。
+
+### `GET /api/notifications/unread-count` — 會員
+`{"count":3}`
+
+### `POST /api/notifications/{id}/read` — 會員
+204（只會影響自己的通知）
+
+### `POST /api/notifications/read-all` — 會員
+204
+
+### `GET /api/notifications/preferences` — 會員
+`{"items":[{"type":"OUTBID","label":"出價被超越","push_enabled":true}, …]}`
+
+### `PUT /api/notifications/preferences` — 會員
+Body `{"OUTBID": false, "AUCTION_WON": true}`；未知類型回 400。回應同 GET。只影響推播，站內通知一律保留。
+
+## Web Push（Phase 3）
+
+### `GET /api/push/public-key` — 公開
+`{"public_key":"B…","enabled":true}`（VAPID 公鑰；未設定時 `enabled:false`）
+
+### `POST /api/push/subscriptions` — 會員
+Body 為瀏覽器 `PushSubscription.toJSON()`：`{"endpoint":"https://fcm.googleapis.com/…","keys":{"p256dh":"…","auth":"…"}}`。
+endpoint 必須是 https 且屬於已知 push service（FCM / Mozilla / Apple / Windows）。同一 endpoint 重新訂閱時改歸目前使用者。204。
+
+### `DELETE /api/push/subscriptions` — 會員
+Body `{"endpoint":"…"}`，只刪除自己的訂閱。204。
