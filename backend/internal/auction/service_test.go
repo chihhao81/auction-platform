@@ -107,7 +107,7 @@ func expectAudit(mock pgxmock.PgxPoolIface, action string) {
 		WillReturnResult(pgxmock.NewResult("INSERT", 1))
 }
 
-var notificationCols = []string{"id", "user_id", "type", "title", "content", "related_auction_id", "related_order_id", "read_at", "created_at"}
+var notificationCols = []string{"id", "user_id", "type", "title", "content", "related_auction_id", "related_order_id", "read_at", "created_at", "seq"}
 
 func TestPlaceBidSuccessNotifiesOutbidUser(t *testing.T) {
 	svc, mock, _, rec := newTestServiceWithRecorder(t, t0)
@@ -126,7 +126,7 @@ func TestPlaceBidSuccessNotifiesOutbidUser(t *testing.T) {
 	expectAudit(mock, "BID_PLACE")
 	mock.ExpectQuery("INSERT INTO notifications").
 		WithArgs(bob, "OUTBID", pgxmock.AnyArg(), pgxmock.AnyArg(), uuid.NullUUID{UUID: a.ID, Valid: true}, uuid.NullUUID{}, t0).
-		WillReturnRows(pgxmock.NewRows(notificationCols).AddRow(uuid.New(), bob, "OUTBID", "t", "c", uuid.NullUUID{UUID: a.ID, Valid: true}, uuid.NullUUID{}, (*time.Time)(nil), t0))
+		WillReturnRows(pgxmock.NewRows(notificationCols).AddRow(uuid.New(), bob, "OUTBID", "t", "c", uuid.NullUUID{UUID: a.ID, Valid: true}, uuid.NullUUID{}, (*time.Time)(nil), t0, int64(1)))
 	mock.ExpectCommit()
 
 	res, err := svc.PlaceBid(context.Background(), alice, a.ID, 1200)

@@ -6,7 +6,7 @@ RETURNING *;
 -- name: ListNotifications :many
 SELECT * FROM notifications
 WHERE user_id = $1
-ORDER BY created_at DESC, id DESC
+ORDER BY seq DESC
 LIMIT sqlc.arg(lim) OFFSET sqlc.arg(off);
 
 -- name: CountUnreadNotifications :one

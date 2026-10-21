@@ -10,6 +10,7 @@ import (
 
 	"auction-platform/backend/internal/apperr"
 	"auction-platform/backend/internal/database/db"
+	"auction-platform/backend/internal/notify"
 	"auction-platform/backend/internal/storage"
 	"auction-platform/backend/internal/store"
 )
@@ -18,14 +19,34 @@ const PageSize = 20
 
 var ErrNotFound = apperr.NotFound("ORDER_NOT_FOUND", "找不到此訂單")
 
-type Service struct {
-	store *store.Store
-	files storage.Storage
-	now   func() time.Time
+// Options configures the automatic order transitions.
+type Options struct {
+	// AutoReceiveAfter: SHIPPED orders become RECEIVED after this long.
+	AutoReceiveAfter time.Duration
+	// AutoCompleteAfter: RECEIVED orders become COMPLETED after this long.
+	AutoCompleteAfter time.Duration
+	// ShippingInfoRetention: the buyer's address is erased this long after
+	// the order is completed or cancelled.
+	ShippingInfoRetention time.Duration
 }
 
-func NewService(st *store.Store, files storage.Storage, now func() time.Time) *Service {
-	return &Service{store: st, files: files, now: now}
+// DefaultOptions holds the confirmed business defaults (see AGENTS.md).
+var DefaultOptions = Options{
+	AutoReceiveAfter:      3 * 24 * time.Hour,
+	AutoCompleteAfter:     7 * 24 * time.Hour,
+	ShippingInfoRetention: 30 * 24 * time.Hour,
+}
+
+type Service struct {
+	store    *store.Store
+	files    storage.Storage
+	dispatch notify.Dispatcher
+	opts     Options
+	now      func() time.Time
+}
+
+func NewService(st *store.Store, files storage.Storage, d notify.Dispatcher, opts Options, now func() time.Time) *Service {
+	return &Service{store: st, files: files, dispatch: d, opts: opts, now: now}
 }
 
 type PartyDTO struct {
@@ -58,8 +79,34 @@ type DetailDTO struct {
 	Overdue         bool       `json:"overdue"`
 	// SellerContact is the seller's extra contact info from the auctions,
 	// shown only to the buyer of this order.
-	SellerContact []string  `json:"seller_contact"`
-	CreatedAt     time.Time `json:"created_at"`
+	SellerContact []string     `json:"seller_contact"`
+	PaidAt        *time.Time   `json:"paid_at"`
+	ShippedAt     *time.Time   `json:"shipped_at"`
+	ReceivedAt    *time.Time   `json:"received_at"`
+	CompletedAt   *time.Time   `json:"completed_at"`
+	Shipment      *ShipmentDTO `json:"shipment"`
+	// AutoAdvanceAt is when the scheduler will move a SHIPPED / RECEIVED
+	// order forward if the buyer does nothing.
+	AutoAdvanceAt *time.Time `json:"auto_advance_at"`
+	CreatedAt     time.Time  `json:"created_at"`
+}
+
+// ShipmentDTO is visible only to the order's buyer and seller.
+type ShipmentDTO struct {
+	RecipientName    string     `json:"recipient_name"`
+	RecipientPhone   string     `json:"recipient_phone"`
+	RecipientAddress string     `json:"recipient_address"`
+	Carrier          string     `json:"carrier"`
+	TrackingNumber   string     `json:"tracking_number"`
+	ShippedAt        *time.Time `json:"shipped_at"`
+	Purged           bool       `json:"purged"`
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 type SummaryDTO struct {
@@ -110,6 +157,24 @@ func (s *Service) Get(ctx context.Context, id, viewer uuid.UUID) (DetailDTO, err
 		Items:  make([]ItemDTO, len(rows)), ItemsTotal: o.ItemsTotal, ShippingFee: o.ShippingFee,
 		TotalAmount: o.TotalAmount, ContactDeadline: o.ContactDeadline.UTC(), ContactedAt: o.ContactedAt,
 		Overdue: o.OverdueAt != nil, SellerContact: []string{}, CreatedAt: o.CreatedAt.UTC(),
+		PaidAt: o.PaidAt, ShippedAt: o.ShippedAt, ReceivedAt: o.ReceivedAt, CompletedAt: o.CompletedAt,
+	}
+	switch {
+	case Status(o.Status) == Shipped && o.ShippedAt != nil:
+		d.AutoAdvanceAt = ptr(o.ShippedAt.Add(s.opts.AutoReceiveAfter).UTC())
+	case Status(o.Status) == Received && o.ReceivedAt != nil:
+		d.AutoAdvanceAt = ptr(o.ReceivedAt.Add(s.opts.AutoCompleteAfter).UTC())
+	}
+	sh, err := s.store.GetShipment(ctx, o.ID)
+	switch {
+	case err == nil:
+		d.Shipment = &ShipmentDTO{
+			RecipientName: deref(sh.RecipientName), RecipientPhone: deref(sh.RecipientPhone),
+			RecipientAddress: deref(sh.RecipientAddress), Carrier: deref(sh.Carrier),
+			TrackingNumber: deref(sh.TrackingNumber), ShippedAt: sh.ShippedAt, Purged: sh.PurgedAt != nil,
+		}
+	case !store.IsNoRows(err):
+		return DetailDTO{}, fmt.Errorf("get shipment: %w", err)
 	}
 	seen := map[string]bool{}
 	for i, it := range rows {

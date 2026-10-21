@@ -16,8 +16,10 @@ import (
 	"auction-platform/backend/internal/auth"
 	"auction-platform/backend/internal/config"
 	"auction-platform/backend/internal/database"
+	"auction-platform/backend/internal/ecpay"
 	"auction-platform/backend/internal/notify"
 	"auction-platform/backend/internal/order"
+	"auction-platform/backend/internal/payment"
 	"auction-platform/backend/internal/scheduler"
 	"auction-platform/backend/internal/server"
 	"auction-platform/backend/internal/settlement"
@@ -77,7 +79,21 @@ func run() error {
 	}
 
 	auctionSvc := auction.NewService(st, files, dispatcher, now)
-	orderSvc := order.NewService(st, files, now)
+	orderSvc := order.NewService(st, files, dispatcher, order.Options{
+		AutoReceiveAfter:      cfg.OrderAutoReceiveAfter,
+		AutoCompleteAfter:     cfg.OrderAutoCompleteAfter,
+		ShippingInfoRetention: cfg.ShippingInfoRetention,
+	}, now)
+
+	var ecpayClient *ecpay.Client
+	if cfg.ECPayEnabled() {
+		ecpayClient = ecpay.New(cfg.ECPayMerchantID, cfg.ECPayHashKey, cfg.ECPayHashIV, cfg.ECPayBaseURL)
+	} else {
+		slog.Warn("ECPAY_MERCHANT_ID not set: payments disabled")
+	}
+	paymentSvc := payment.NewService(st, ecpayClient, dispatcher, payment.Config{
+		PublicBaseURL: cfg.PublicBaseURL, AllowSimulated: cfg.ECPayAllowSimulated,
+	}, now)
 	settlementSvc := settlement.NewService(st, dispatcher, now)
 
 	var schedulerDone chan struct{}
@@ -86,14 +102,17 @@ func run() error {
 		go func() {
 			defer close(schedulerDone)
 			slog.Info("scheduler started", "interval", cfg.SchedulerInterval.String())
-			scheduler.Run(ctx, cfg.SchedulerInterval, scheduler.Job{Name: "settlement", Run: settlementSvc.RunOnce})
+			scheduler.Run(ctx, cfg.SchedulerInterval,
+				scheduler.Job{Name: "settlement", Run: settlementSvc.RunOnce},
+				scheduler.Job{Name: "orders", Run: orderSvc.RunJobs},
+			)
 		}()
 	}
 
 	srv := &http.Server{
 		Addr: ":" + cfg.Port,
 		Handler: server.NewRouter(server.Deps{
-			Config: cfg, Store: st, Auth: authSvc, Line: line, Auction: auctionSvc, Order: orderSvc,
+			Config: cfg, Store: st, Auth: authSvc, Line: line, Auction: auctionSvc, Order: orderSvc, Payment: paymentSvc,
 			Uploads: files, Now: now,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,

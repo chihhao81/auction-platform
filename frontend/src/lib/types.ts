@@ -163,5 +163,34 @@ export interface OrderDetail {
   contacted_at: string | null;
   overdue: boolean;
   seller_contact: string[];
+  paid_at: string | null;
+  shipped_at: string | null;
+  received_at: string | null;
+  completed_at: string | null;
+  shipment: Shipment | null;
+  auto_advance_at: string | null;
   created_at: string;
+}
+
+export interface Shipment {
+  recipient_name: string;
+  recipient_phone: string;
+  recipient_address: string;
+  carrier: string;
+  tracking_number: string;
+  shipped_at: string | null;
+  purged: boolean;
+}
+
+export interface OrderMessage {
+  id: string;
+  mine: boolean;
+  content: string;
+  created_at: string;
+  read_at: string | null;
+}
+
+export interface PaymentCheckout {
+  action: string;
+  fields: Record<string, string>;
 }

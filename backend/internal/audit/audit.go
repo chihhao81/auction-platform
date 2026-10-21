@@ -28,6 +28,12 @@ const (
 	ActionAuctionSettle     = "AUCTION_SETTLE"
 	ActionOrderCreate       = "ORDER_CREATE"
 	ActionOrderStatus       = "ORDER_STATUS_CHANGE"
+	ActionOrderOverdue      = "ORDER_OVERDUE"
+	ActionShippingInfoSet   = "SHIPPING_INFO_SET"
+	ActionShipmentCreate    = "SHIPMENT_CREATE"
+	ActionPaymentCreate     = "PAYMENT_CREATE"
+	ActionPaymentStatus     = "PAYMENT_STATUS_CHANGE"
+	ActionReportCreate      = "REPORT_CREATE"
 )
 
 // Target types recorded in audit_logs.target_type.
@@ -35,6 +41,8 @@ const (
 	TargetUser    = "USER"
 	TargetAuction = "AUCTION"
 	TargetOrder   = "ORDER"
+	TargetPayment = "PAYMENT"
+	TargetReport  = "REPORT"
 )
 
 type Inserter interface {

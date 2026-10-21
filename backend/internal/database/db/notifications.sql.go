@@ -49,7 +49,7 @@ func (q *Queries) DeleteUserPushSubscription(ctx context.Context, arg DeleteUser
 const insertNotification = `-- name: InsertNotification :one
 INSERT INTO notifications (user_id, type, title, content, related_auction_id, related_order_id, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7)
-RETURNING id, user_id, type, title, content, related_auction_id, related_order_id, read_at, created_at
+RETURNING id, user_id, type, title, content, related_auction_id, related_order_id, read_at, created_at, seq
 `
 
 type InsertNotificationParams struct {
@@ -83,6 +83,7 @@ func (q *Queries) InsertNotification(ctx context.Context, arg InsertNotification
 		&i.RelatedOrderID,
 		&i.ReadAt,
 		&i.CreatedAt,
+		&i.Seq,
 	)
 	return i, err
 }
@@ -107,9 +108,9 @@ func (q *Queries) IsPushEnabled(ctx context.Context, arg IsPushEnabledParams) (b
 }
 
 const listNotifications = `-- name: ListNotifications :many
-SELECT id, user_id, type, title, content, related_auction_id, related_order_id, read_at, created_at FROM notifications
+SELECT id, user_id, type, title, content, related_auction_id, related_order_id, read_at, created_at, seq FROM notifications
 WHERE user_id = $1
-ORDER BY created_at DESC, id DESC
+ORDER BY seq DESC
 LIMIT $3 OFFSET $2
 `
 
@@ -138,6 +139,7 @@ func (q *Queries) ListNotifications(ctx context.Context, arg ListNotificationsPa
 			&i.RelatedOrderID,
 			&i.ReadAt,
 			&i.CreatedAt,
+			&i.Seq,
 		); err != nil {
 			return nil, err
 		}

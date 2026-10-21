@@ -1,4 +1,4 @@
-# API 文件（Phase 1–3）
+# API 文件（Phase 1–4）
 
 * Base path：`/api`（瀏覽器經 Next.js rewrites 代理至 Go backend）
 * 時間：一律 UTC ISO-8601；金額：新台幣整數
@@ -173,3 +173,43 @@ endpoint 必須是 https 且屬於已知 push service（FCM / Mozilla / Apple / 
 
 ### `DELETE /api/push/subscriptions` — 會員
 Body `{"endpoint":"…"}`，只刪除自己的訂閱。204。
+
+## 訂單履約（Phase 4）
+
+以下皆為會員 API，只有訂單的買家或賣家可呼叫，其他人一律 404。
+
+### `GET /api/orders/{id}` 新增欄位
+`paid_at`、`shipped_at`、`received_at`、`completed_at`、`auto_advance_at`（SHIPPED/RECEIVED 時系統自動推進的時間）、
+`shipment`：`{"recipient_name","recipient_phone","recipient_address","carrier","tracking_number","shipped_at","purged"}`（無則 null）。
+
+### `GET /api/orders/{id}/messages`
+`{"items":[{"id","mine":true,"content":"…","created_at","read_at"}]}`，最舊在前（最多最近 200 則）；同時把對方傳給我的訊息標為已讀。
+
+### `POST /api/orders/{id}/messages`
+Body `{"content":"純文字 1~1000 字"}` → 201 `{"message":{…}}`。買家第一則訊息會讓訂單由 `AWAITING_CONTACT` 轉為 `AWAITING_PAYMENT`。訂單取消後回 409。
+
+### `PUT /api/orders/{id}/shipping-info` — 僅買家，`AWAITING_SHIPMENT`
+Body `{"recipient_name":"…","recipient_phone":"0912-345-678","recipient_address":"地址或超商門市"}` → 204。出貨後不可修改（409 `ALREADY_SHIPPED`）。
+
+### `POST /api/orders/{id}/ship` — 僅賣家，`AWAITING_SHIPMENT`
+Body `{"carrier":"黑貓宅急便","tracking_number":"…"}` → 204；買家未填收件資訊時 409 `SHIPPING_INFO_MISSING`。
+
+### `POST /api/orders/{id}/receive` — 僅買家，`SHIPPED` → `RECEIVED`
+### `POST /api/orders/{id}/complete` — 僅買家，`RECEIVED` → `COMPLETED`
+
+自動轉換：出貨 72 小時後自動 `RECEIVED`、收貨 168 小時後自動 `COMPLETED`；訂單成立 24 小時內買家未傳訊息則標記逾期並建立系統檢舉。
+
+## 付款（Phase 4）
+
+### `POST /api/orders/{id}/payments` — 僅買家，`AWAITING_PAYMENT`
+建立付款嘗試，回傳要自動送出的表單（欄位已由後端簽章）：
+```json
+{"action":"https://payment-stage.ecpay.com.tw/Cashier/AioCheckOut/V5","fields":{"MerchantID":"…","MerchantTradeNo":"CB…","TotalAmount":"1675",…,"CheckMacValue":"…"}}
+```
+每筆訂單每分鐘最多 5 次（429 `PAYMENT_RATE_LIMITED`）。
+
+### `POST /api/orders/{id}/payments/sync` — 買賣雙方
+後端向綠界查詢此訂單尚未完成的付款，若已付款則套用（處理 callback 延遲或遺失）。204。
+
+### `POST /api/payments/ecpay/notify` — 綠界 server-to-server（不需登入、免 CSRF）
+`application/x-www-form-urlencoded`，必須帶正確 `CheckMacValue`。回應純文字：成功或已處理 `1|OK`；簽章錯誤 400 `0|CheckMacValue Error`。付款金額必須與訂單金額相同，重複通知不會重複處理。

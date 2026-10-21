@@ -28,6 +28,8 @@ const (
 	TypeOrderWaiting    Type = "ORDER_WAITING"
 	TypeOrderCreated    Type = "ORDER_CREATED"
 	TypeOrderStatus     Type = "ORDER_STATUS_CHANGED"
+	TypePaymentDone     Type = "PAYMENT_COMPLETED"
+	TypeOrderShipped    Type = "ORDER_SHIPPED"
 	TypeMessageReceived Type = "MESSAGE_RECEIVED"
 )
 
@@ -47,6 +49,8 @@ var Types = []TypeInfo{
 	{TypeAuctionUnsold, "我的商品無人出價"},
 	{TypeOrderWaiting, "等待其他競標結束"},
 	{TypeOrderCreated, "訂單成立"},
+	{TypePaymentDone, "付款完成"},
+	{TypeOrderShipped, "賣家已出貨"},
 	{TypeOrderStatus, "訂單狀態變更"},
 	{TypeMessageReceived, "收到訂單訊息"},
 }

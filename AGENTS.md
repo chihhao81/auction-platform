@@ -122,6 +122,25 @@
 * 已付款後不可直接取消，需經 DISPUTED 由管理員處理（涉及退款）。
 * 訂單只有買賣雙方可讀，其他人一律回 404（不洩漏存在與否）；賣家的「額外聯絡方式」只顯示給該訂單買家。
 
+### ADR-17: 綠界付款（Phase 4）
+* `internal/ecpay`：AIO V5。CheckMacValue＝參數依 key 排序 → 前後加 HashKey/HashIV → .NET 風格 URL encode → 小寫 → SHA256 → 大寫；已用官方文件範例驗證，並實測綠界 stage 伺服器接受我們的簽章、我們也能驗證其回應簽章。`MerchantTradeDate` 以台灣時間送出。
+* **付款只認綠界簽章過的結果**：(1) server-to-server callback `POST /api/payments/ecpay/notify`（CSRF 例外，靠 CheckMacValue 驗證）；(2) 後端主動 `QueryTradeInfo`（買家回到訂單頁時觸發 `/payments/sync`，處理 callback 延遲、遺失或使用者關閉頁面）。瀏覽器回傳的任何結果都不採信。
+* **冪等**：鎖 payment row，只處理 PENDING；重複/併發 callback 皆回 `1|OK` 且不重複套用。DB 另有 partial unique index 保證每筆訂單最多一筆 PAID。
+* **異常**：簽章錯 → 400 `0|CheckMacValue Error`；金額不符 → `AMOUNT_MISMATCH`（不套用）；訂單已付款/不可付款時又收到付款 → `DUPLICATE`（需人工退款，Audit 標記 needs_refund）；未知交易 → 記 log 回 `1|OK`；stage 的「模擬付款」只在 `ECPAY_ALLOW_SIMULATED=true`（非 production）時接受。
+* 每次付款嘗試都是新的 `MerchantTradeNo`（`CB`+UTC 時間+6 碼亂數，20 字元）；每筆訂單每分鐘最多 5 次。
+* 付款成功在同一交易內 AWAITING_PAYMENT → PAID → AWAITING_SHIPMENT，通知買賣雙方。
+* 本機開發 callback 打不到 localhost，靠 sync 查詢即可；部署後 `PUBLIC_BASE_URL`（預設 FRONTEND_URL）需可被綠界連到。
+* `.env.example` 內是綠界官方公開的 stage 測試商店（3002607），正式環境請換成自己的商店，金鑰只放 backend env。
+
+### ADR-18: 出貨、訊息、逾期（Phase 4）
+* **訊息**：純文字 1~1000 字（`textutil.Clean` 拒絕控制字元；原文儲存、前端 escape 顯示），只有訂單買賣雙方可讀寫（他人一律 404），訂單 CANCELLED 後不可再傳。每位使用者 1 則/秒（burst 5）。對方未讀期間只發一則通知，避免洗版。
+* 買家的**第一則訊息**設定 `contacted_at` 並轉為 AWAITING_PAYMENT。
+* **收件資訊**存 `shipments`，付款後由買家填寫、出貨前可修改，只有該訂單買賣雙方看得到；Audit 不記錄地址內容；訂單完成或取消 `SHIPPING_INFO_RETENTION`（預設 30 天）後由定時 job 清除。
+* **出貨**需已有收件資訊；記錄物流方式與單號，轉為 SHIPPED。
+* **定時 job（`order.RunJobs`，與結標同一 scheduler）**：24 小時未聯絡 → 原子認領設 `overdue_at`、建立系統檢舉（`reports`，reporter 為 NULL，reason `NO_CONTACT_24H`，同訂單只會一筆）、Audit、通知雙方；SHIPPED 超過 `ORDER_AUTO_RECEIVE_AFTER`（72h）→ RECEIVED；RECEIVED 超過 `ORDER_AUTO_COMPLETE_AFTER`（168h）→ COMPLETED。
+* `reports` 表已依 Phase 5 需求建立（PENDING/REVIEWING/RESOLVED/REJECTED、處理者、處理時間）。
+* **排序**：同一交易內建立的列 `created_at` 相同、UUID 又是隨機的，`messages` 與 `notifications` 以 identity 欄位 `seq` 排序（migration 000005）。之後新增「依建立順序列出」的資料表也應比照。
+
 ### ADR-13: Next.js 16 注意事項
 * 本專案使用 Next.js 16.4（`cacheComponents` + `partialPrefetching` 開啟）。與舊版差異大，開發前請閱讀 `frontend/node_modules/next/dist/docs/`（`frontend/AGENTS.md` 亦有提醒）。
 * 使用 `useSearchParams()` / `usePathname()` / `useParams()` 的 Client Component 必須包在 `<Suspense>` 內，否則 build 失敗（`RequireMember` 已內建 Suspense）。
@@ -153,11 +172,11 @@
   * Web Push（VAPID、subscription 管理、失效自動刪除、SSRF 白名單）
   * 訂單狀態機、訂單列表 / 詳細頁（買賣雙方）
   * Audit：AUCTION_SETTLE / ORDER_CREATE（系統操作 actor 為 NULL）/ ORDER_STATUS_CHANGE
-* [ ] **Phase 4: 綠界付款、出貨與訂單訊息**
-  * Order 狀態機（AWAITING_CONTACT, AWAITING_PAYMENT, PAID...）
-  * 綠界 ECPay 付款整合、後端驗證與冪等性（Idempotency）保護
-  * 物流資訊登記與買賣雙方純文字訊息系統（綁定 Order）
-  * 24 小時未聯絡自動標記逾期與檢舉
+* [x] **Phase 4: 綠界付款、出貨與訂單訊息**（2026-10-22；整合測試 10 項通過；瀏覽器端對端：訊息→付款頁（綠界 stage 正確顯示金額）→模擬簽章 callback→收件資訊→出貨→收貨→完成）
+  * 綠界付款（簽章、callback、主動查詢、冪等、重複付款/金額不符/偽造簽章處理）
+  * 訂單訊息、首則訊息觸發聯絡、收件資訊（隱私與定期清除）、出貨、收貨、完成
+  * 24 小時逾期標記＋系統檢舉、自動收貨（3 天）、自動完成（7 天）
+  * Audit：PAYMENT_CREATE / PAYMENT_STATUS_CHANGE / SHIPPING_INFO_SET / SHIPMENT_CREATE / ORDER_OVERDUE / ORDER_STATUS_CHANGE
 * [ ] **Phase 5: 評價、檢舉與管理員**
   * 雙向評價系統（正評/負評 + 留言）
   * 競標與使用者檢舉
@@ -196,7 +215,7 @@
 
 ## 6. 待確認事項
 
-1. 綠界：需要測試環境商店代號 / HashKey / HashIV（可先用綠界公開測試帳號）。
+1. 綠界：目前使用官方公開 stage 測試商店；正式上線前需換成自己的商店代號與金鑰，並確認 ReturnURL 可被綠界連到。尚未在 stage 實際刷卡走完 callback（需公開網址），部署後應實測一次。
 2. 「競標即將開始」通知：目前沒有「關注 / 收藏」功能，無合適收件者，尚未實作。是否要加收藏功能？
 
 ## 7. 本機開發

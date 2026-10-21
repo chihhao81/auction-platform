@@ -11,3 +11,26 @@ export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   CANCELLED: "已取消",
   DISPUTED: "爭議處理中",
 };
+
+// Builds and submits the POST form that hands the buyer over to ECPay. The
+// fields are produced and signed by the backend; nothing here affects the
+// amount. Only ECPay's https origin is accepted as the form target.
+export function submitPaymentForm(action: string, fields: Record<string, string>, doc: Document = document): HTMLFormElement {
+  const url = new URL(action);
+  if (url.protocol !== "https:" || !/(^|\.)ecpay\.com\.tw$/.test(url.hostname)) {
+    throw new Error("unexpected payment endpoint");
+  }
+  const form = doc.createElement("form");
+  form.method = "POST";
+  form.action = url.href;
+  for (const [name, value] of Object.entries(fields)) {
+    const input = doc.createElement("input");
+    input.type = "hidden";
+    input.name = name;
+    input.value = value;
+    form.appendChild(input);
+  }
+  doc.body.appendChild(form);
+  form.submit();
+  return form;
+}

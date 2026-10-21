@@ -48,7 +48,26 @@ type Config struct {
 	VAPIDPublicKey  string
 	VAPIDPrivateKey string
 	VAPIDSubject    string
+
+	// ECPay (綠界). HashKey/HashIV are secrets and stay in the backend env.
+	// Payments are disabled while ECPAY_MERCHANT_ID is empty.
+	ECPayMerchantID string
+	ECPayHashKey    string
+	ECPayHashIV     string
+	ECPayBaseURL    string
+	// ECPayAllowSimulated accepts stage "simulate paid" notifications.
+	ECPayAllowSimulated bool
+	// PublicBaseURL is the site origin ECPay calls back to (the frontend
+	// proxies /api to the backend). Defaults to FRONTEND_URL.
+	PublicBaseURL string
+
+	OrderAutoReceiveAfter  time.Duration
+	OrderAutoCompleteAfter time.Duration
+	ShippingInfoRetention  time.Duration
 }
+
+// ECPayEnabled reports whether ECPay payments are configured.
+func (c *Config) ECPayEnabled() bool { return c.ECPayMerchantID != "" }
 
 // PushEnabled reports whether Web Push is configured.
 func (c *Config) PushEnabled() bool { return c.VAPIDPublicKey != "" && c.VAPIDPrivateKey != "" }
@@ -78,6 +97,10 @@ func load(getenv func(string) string) (*Config, error) {
 		VAPIDPublicKey:    get("VAPID_PUBLIC_KEY", ""),
 		VAPIDPrivateKey:   get("VAPID_PRIVATE_KEY", ""),
 		VAPIDSubject:      get("VAPID_SUBJECT", ""),
+		ECPayMerchantID:   get("ECPAY_MERCHANT_ID", ""),
+		ECPayHashKey:      get("ECPAY_HASH_KEY", ""),
+		ECPayHashIV:       get("ECPAY_HASH_IV", ""),
+		ECPayBaseURL:      get("ECPAY_BASE_URL", "https://payment-stage.ecpay.com.tw"),
 		AdminLineUserIDs:  map[string]bool{},
 	}
 	var errs []error
@@ -93,6 +116,19 @@ func load(getenv func(string) string) (*Config, error) {
 	c.MockLineAuth = parseBool("MOCK_LINE_AUTH", false)
 	c.CookieSecure = parseBool("COOKIE_SECURE", c.IsProduction())
 	c.SchedulerEnabled = parseBool("SCHEDULER_ENABLED", true)
+	c.ECPayAllowSimulated = parseBool("ECPAY_ALLOW_SIMULATED", !c.IsProduction())
+	c.PublicBaseURL = strings.TrimRight(get("PUBLIC_BASE_URL", c.FrontendURL), "/")
+
+	parseDur := func(key, def string, min time.Duration) time.Duration {
+		d, err := time.ParseDuration(get(key, def))
+		if err != nil || d < min {
+			errs = append(errs, fmt.Errorf("%s: must be a duration >= %s", key, min))
+		}
+		return d
+	}
+	c.OrderAutoReceiveAfter = parseDur("ORDER_AUTO_RECEIVE_AFTER", "72h", time.Hour)
+	c.OrderAutoCompleteAfter = parseDur("ORDER_AUTO_COMPLETE_AFTER", "168h", time.Hour)
+	c.ShippingInfoRetention = parseDur("SHIPPING_INFO_RETENTION", "720h", 24*time.Hour)
 
 	interval, err := time.ParseDuration(get("SCHEDULER_INTERVAL", "1m"))
 	if err != nil || interval < 10*time.Second || interval > time.Hour {
@@ -132,6 +168,12 @@ func load(getenv func(string) string) (*Config, error) {
 	}
 	if c.PushEnabled() && !strings.HasPrefix(c.VAPIDSubject, "mailto:") && !strings.HasPrefix(c.VAPIDSubject, "https://") {
 		errs = append(errs, errors.New("VAPID_SUBJECT must be a mailto: or https: URL when push is enabled"))
+	}
+	if c.ECPayEnabled() && (c.ECPayHashKey == "" || c.ECPayHashIV == "") {
+		errs = append(errs, errors.New("ECPAY_HASH_KEY and ECPAY_HASH_IV are required when ECPAY_MERCHANT_ID is set"))
+	}
+	if c.IsProduction() && c.ECPayAllowSimulated {
+		errs = append(errs, errors.New("ECPAY_ALLOW_SIMULATED must be false in production"))
 	}
 	if err := errors.Join(errs...); err != nil {
 		return nil, err

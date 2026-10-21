@@ -13,7 +13,7 @@ import (
 )
 
 const getOrder = `-- name: GetOrder :one
-SELECT id, buyer_id, seller_id, items_total, shipping_fee, total_amount, status, contact_deadline, contacted_at, overdue_at, created_at, updated_at FROM orders WHERE id = $1
+SELECT id, buyer_id, seller_id, items_total, shipping_fee, total_amount, status, contact_deadline, contacted_at, overdue_at, created_at, updated_at, paid_at, shipped_at, received_at, completed_at FROM orders WHERE id = $1
 `
 
 func (q *Queries) GetOrder(ctx context.Context, id uuid.UUID) (Order, error) {
@@ -32,6 +32,10 @@ func (q *Queries) GetOrder(ctx context.Context, id uuid.UUID) (Order, error) {
 		&i.OverdueAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PaidAt,
+		&i.ShippedAt,
+		&i.ReceivedAt,
+		&i.CompletedAt,
 	)
 	return i, err
 }
@@ -102,7 +106,7 @@ func (q *Queries) ListOrderItems(ctx context.Context, orderID uuid.NullUUID) ([]
 }
 
 const listOrdersForUser = `-- name: ListOrdersForUser :many
-SELECT o.id, o.buyer_id, o.seller_id, o.items_total, o.shipping_fee, o.total_amount, o.status, o.contact_deadline, o.contacted_at, o.overdue_at, o.created_at, o.updated_at,
+SELECT o.id, o.buyer_id, o.seller_id, o.items_total, o.shipping_fee, o.total_amount, o.status, o.contact_deadline, o.contacted_at, o.overdue_at, o.created_at, o.updated_at, o.paid_at, o.shipped_at, o.received_at, o.completed_at,
        (SELECT COUNT(*) FROM order_items i WHERE i.order_id = o.id) AS item_count,
        cp.display_name AS counterparty_name
 FROM orders o
@@ -133,6 +137,10 @@ type ListOrdersForUserRow struct {
 	OverdueAt        *time.Time `json:"overdue_at"`
 	CreatedAt        time.Time  `json:"created_at"`
 	UpdatedAt        time.Time  `json:"updated_at"`
+	PaidAt           *time.Time `json:"paid_at"`
+	ShippedAt        *time.Time `json:"shipped_at"`
+	ReceivedAt       *time.Time `json:"received_at"`
+	CompletedAt      *time.Time `json:"completed_at"`
 	ItemCount        int64      `json:"item_count"`
 	CounterpartyName string     `json:"counterparty_name"`
 }
@@ -165,6 +173,10 @@ func (q *Queries) ListOrdersForUser(ctx context.Context, arg ListOrdersForUserPa
 			&i.OverdueAt,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.PaidAt,
+			&i.ShippedAt,
+			&i.ReceivedAt,
+			&i.CompletedAt,
 			&i.ItemCount,
 			&i.CounterpartyName,
 		); err != nil {

@@ -63,6 +63,17 @@ type Bid struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
+type Message struct {
+	ID         uuid.UUID  `json:"id"`
+	OrderID    uuid.UUID  `json:"order_id"`
+	SenderID   uuid.UUID  `json:"sender_id"`
+	ReceiverID uuid.UUID  `json:"receiver_id"`
+	Content    string     `json:"content"`
+	CreatedAt  time.Time  `json:"created_at"`
+	ReadAt     *time.Time `json:"read_at"`
+	Seq        int64      `json:"seq"`
+}
+
 type Notification struct {
 	ID               uuid.UUID     `json:"id"`
 	UserID           uuid.UUID     `json:"user_id"`
@@ -73,6 +84,7 @@ type Notification struct {
 	RelatedOrderID   uuid.NullUUID `json:"related_order_id"`
 	ReadAt           *time.Time    `json:"read_at"`
 	CreatedAt        time.Time     `json:"created_at"`
+	Seq              int64         `json:"seq"`
 }
 
 type NotificationPreference struct {
@@ -95,6 +107,10 @@ type Order struct {
 	OverdueAt       *time.Time `json:"overdue_at"`
 	CreatedAt       time.Time  `json:"created_at"`
 	UpdatedAt       time.Time  `json:"updated_at"`
+	PaidAt          *time.Time `json:"paid_at"`
+	ShippedAt       *time.Time `json:"shipped_at"`
+	ReceivedAt      *time.Time `json:"received_at"`
+	CompletedAt     *time.Time `json:"completed_at"`
 }
 
 type OrderItem struct {
@@ -109,6 +125,21 @@ type OrderItem struct {
 	CreatedAt   time.Time     `json:"created_at"`
 }
 
+type Payment struct {
+	ID              uuid.UUID  `json:"id"`
+	OrderID         uuid.UUID  `json:"order_id"`
+	Provider        string     `json:"provider"`
+	MerchantTradeNo string     `json:"merchant_trade_no"`
+	Amount          int64      `json:"amount"`
+	Status          string     `json:"status"`
+	ProviderTradeNo *string    `json:"provider_trade_no"`
+	PaymentType     *string    `json:"payment_type"`
+	PaidAt          *time.Time `json:"paid_at"`
+	Result          []byte     `json:"result"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
+}
+
 type PushSubscription struct {
 	ID        uuid.UUID `json:"id"`
 	UserID    uuid.UUID `json:"user_id"`
@@ -120,6 +151,23 @@ type PushSubscription struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+type Report struct {
+	ID              uuid.UUID     `json:"id"`
+	ReporterID      uuid.NullUUID `json:"reporter_id"`
+	TargetType      string        `json:"target_type"`
+	TargetUserID    uuid.NullUUID `json:"target_user_id"`
+	TargetAuctionID uuid.NullUUID `json:"target_auction_id"`
+	OrderID         uuid.NullUUID `json:"order_id"`
+	Reason          string        `json:"reason"`
+	Description     string        `json:"description"`
+	Status          string        `json:"status"`
+	ResolutionNote  string        `json:"resolution_note"`
+	HandledBy       uuid.NullUUID `json:"handled_by"`
+	HandledAt       *time.Time    `json:"handled_at"`
+	CreatedAt       time.Time     `json:"created_at"`
+	UpdatedAt       time.Time     `json:"updated_at"`
+}
+
 type Session struct {
 	ID        uuid.UUID  `json:"id"`
 	TokenHash []byte     `json:"token_hash"`
@@ -129,6 +177,20 @@ type Session struct {
 	CreatedAt time.Time  `json:"created_at"`
 	ExpiresAt time.Time  `json:"expires_at"`
 	RevokedAt *time.Time `json:"revoked_at"`
+}
+
+type Shipment struct {
+	OrderID          uuid.UUID  `json:"order_id"`
+	RecipientName    *string    `json:"recipient_name"`
+	RecipientPhone   *string    `json:"recipient_phone"`
+	RecipientAddress *string    `json:"recipient_address"`
+	Carrier          *string    `json:"carrier"`
+	TrackingNumber   *string    `json:"tracking_number"`
+	AddressSetAt     *time.Time `json:"address_set_at"`
+	ShippedAt        *time.Time `json:"shipped_at"`
+	PurgedAt         *time.Time `json:"purged_at"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 type User struct {

@@ -158,7 +158,7 @@ func TestIntegrationSettleCreatesWinAndOrder(t *testing.T) {
 	}
 
 	// Order visibility (IDOR): buyer and seller only; contact info only to buyer.
-	orders2 := order.NewService(store.New(pool), &storage.Local{BaseURL: "/uploads"}, c.now)
+	orders2 := order.NewService(store.New(pool), &storage.Local{BaseURL: "/uploads"}, notify.Noop{}, order.DefaultOptions, c.now)
 	buyerView, err := orders2.Get(ctx, orderID, bob)
 	if err != nil || buyerView.Role != "buyer" || len(buyerView.SellerContact) != 1 || len(buyerView.Items) != 1 {
 		t.Fatalf("buyer view %+v err %v", buyerView, err)

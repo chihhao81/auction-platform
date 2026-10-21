@@ -15,6 +15,7 @@ import (
 	"auction-platform/backend/internal/httpx"
 	"auction-platform/backend/internal/notify"
 	"auction-platform/backend/internal/order"
+	"auction-platform/backend/internal/payment"
 	"auction-platform/backend/internal/storage"
 	"auction-platform/backend/internal/store"
 )
@@ -26,6 +27,7 @@ type Deps struct {
 	Line    auth.LineClient
 	Auction *auction.Service
 	Order   *order.Service
+	Payment *payment.Service
 	// Uploads serves locally stored images; nil when using remote storage.
 	Uploads *storage.Local
 	Now     func() time.Time
@@ -38,7 +40,9 @@ func NewRouter(d Deps) http.Handler {
 	r.Use(httpx.SecurityHeaders)
 	r.Use(httpx.ClientMeta(d.Config.ClientIPHeader))
 	r.Use(httpx.RateLimitByIP(httpx.NewRateLimiter(10, 40)))
-	r.Use(httpx.CSRF(d.Config.CookieSecure))
+	// The ECPay callback is server-to-server and authenticated by its
+	// CheckMacValue instead of the CSRF token.
+	r.Use(httpx.CSRF(d.Config.CookieSecure, payment.NotifyPath))
 
 	r.Route("/api", func(r chi.Router) {
 		r.Get("/health", httpx.Handle(func(w http.ResponseWriter, r *http.Request) error {
@@ -56,6 +60,7 @@ func NewRouter(d Deps) http.Handler {
 			auth.NewHandler(d.Auth, d.Line, d.Config.FrontendURL, d.Config.CookieSecure, d.Config.MockLineAuth).Routes(r)
 			auction.NewHandler(d.Auction).Routes(r)
 			order.NewHandler(d.Order).Routes(r)
+			payment.NewHandler(d.Payment).Routes(r)
 			notify.NewHandler(d.Store, d.Config.VAPIDPublicKey, d.Now).Routes(r)
 		})
 	})

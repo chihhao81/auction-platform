@@ -75,7 +75,7 @@ const createOrder = `-- name: CreateOrder :one
 INSERT INTO orders (buyer_id, seller_id, items_total, shipping_fee, total_amount, status,
                     contact_deadline, created_at, updated_at)
 VALUES ($1, $2, $3, $4, $5, 'AWAITING_CONTACT', $6, $7, $7)
-RETURNING id, buyer_id, seller_id, items_total, shipping_fee, total_amount, status, contact_deadline, contacted_at, overdue_at, created_at, updated_at
+RETURNING id, buyer_id, seller_id, items_total, shipping_fee, total_amount, status, contact_deadline, contacted_at, overdue_at, created_at, updated_at, paid_at, shipped_at, received_at, completed_at
 `
 
 type CreateOrderParams struct {
@@ -112,6 +112,10 @@ func (q *Queries) CreateOrder(ctx context.Context, arg CreateOrderParams) (Order
 		&i.OverdueAt,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.PaidAt,
+		&i.ShippedAt,
+		&i.ReceivedAt,
+		&i.CompletedAt,
 	)
 	return i, err
 }

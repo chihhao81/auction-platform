@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { ApiError, api } from "@/lib/api";
@@ -8,18 +8,37 @@ import { formatPrice } from "@/lib/auction";
 import { ORDER_STATUS_LABELS } from "@/lib/order";
 import { formatTaipei } from "@/lib/time";
 import type { OrderDetail } from "@/lib/types";
+import { OrderActions } from "./OrderActions";
+import { OrderMessages } from "./OrderMessages";
 
 export function OrderDetailView() {
   const { id } = useParams<{ id: string }>();
   const [order, setOrder] = useState<OrderDetail | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    api.get<{ order: OrderDetail }>(`/api/orders/${id}`).then(
-      (r) => setOrder(r.order),
-      (e) => setError(e instanceof ApiError && e.status === 404 ? "找不到此訂單" : "無法載入訂單"),
-    );
+  const synced = useRef(false);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get<{ order: OrderDetail }>(`/api/orders/${id}`);
+      setOrder(r.order);
+      // While awaiting payment, ask the backend to check ECPay once in case
+      // its notification is delayed or lost (e.g. the buyer closed the tab).
+      if (r.order.status === "AWAITING_PAYMENT" && !synced.current) {
+        synced.current = true;
+        await api.post(`/api/orders/${id}/payments/sync`).catch(() => {});
+        const again = await api.get<{ order: OrderDetail }>(`/api/orders/${id}`);
+        setOrder(again.order);
+      }
+    } catch (e) {
+      setError(e instanceof ApiError && e.status === 404 ? "找不到此訂單" : "無法載入訂單");
+    }
   }, [id]);
+
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- initial fetch
+    void load();
+  }, [load]);
 
   if (error) return <p className="rounded-xl bg-white p-8 text-center text-gray-500 shadow">{error}</p>;
   if (!order) return <p className="text-center text-gray-500">載入中…</p>;
@@ -84,6 +103,10 @@ export function OrderDetailView() {
           <dd className="font-bold text-emerald-700">{formatPrice(order.total_amount)}</dd>
         </dl>
       </section>
+
+      <OrderActions key={order.status} order={order} onChanged={() => void load()} />
+
+      <OrderMessages orderId={order.id} disabled={order.status === "CANCELLED"} onSent={() => void load()} />
 
       <p className="text-center text-xs text-gray-400">訂單成立於 {formatTaipei(order.created_at)}</p>
     </div>
