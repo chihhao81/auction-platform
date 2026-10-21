@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	neturl "net/url"
 	"strings"
 	"time"
 
@@ -38,8 +39,11 @@ func Open(ctx context.Context, url string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// Migrate applies all pending up migrations embedded in the binary.
+// Migrate applies all pending up migrations embedded in the binary. It always
+// connects directly (see DirectURL): golang-migrate relies on session-level
+// advisory locks, which a transaction-mode pooler does not preserve.
 func Migrate(url string) error {
+	url = DirectURL(url)
 	src, err := iofs.New(migrations.FS, ".")
 	if err != nil {
 		return fmt.Errorf("migration source: %w", err)
@@ -53,6 +57,28 @@ func Migrate(url string) error {
 		return fmt.Errorf("migrate up: %w", err)
 	}
 	return nil
+}
+
+// DirectURL turns a Neon pooled URL (host "ep-xxx-pooler.region...") into
+// the direct endpoint. Session-level features (advisory locks, SET,
+// search_path startup parameters) need a direct connection. Other URLs are
+// returned unchanged.
+func DirectURL(raw string) string {
+	u, err := neturl.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	host, port := u.Hostname(), u.Port()
+	first, rest, ok := strings.Cut(host, ".")
+	if !ok || !strings.HasSuffix(first, "-pooler") {
+		return raw
+	}
+	host = strings.TrimSuffix(first, "-pooler") + "." + rest
+	if port != "" {
+		host += ":" + port
+	}
+	u.Host = host
+	return u.String()
 }
 
 // toMigrateURL rewrites postgres:// URLs to the pgx5:// scheme golang-migrate

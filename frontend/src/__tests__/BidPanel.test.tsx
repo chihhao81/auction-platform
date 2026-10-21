@@ -32,12 +32,13 @@ const auction = (over: Partial<AuctionDetail> = {}): AuctionDetail => ({
 
 describe("bidBlockReason", () => {
   it("mirrors backend bid rules", () => {
-    expect(bidBlockReason(auction({ status: "UPCOMING" }), true)).toBe("競標尚未開始");
-    expect(bidBlockReason(auction({ status: "ENDED" }), true)).toBe("競標已結束");
-    expect(bidBlockReason(auction(), false)).toBe("LOGIN");
-    expect(bidBlockReason(auction({ is_seller: true }), true)).toContain("賣家");
-    expect(bidBlockReason(auction({ is_highest_bidder: true }), true)).toContain("最高出價者");
-    expect(bidBlockReason(auction(), true)).toBeNull();
+    expect(bidBlockReason(auction({ status: "UPCOMING" }), "member")).toBe("競標尚未開始");
+    expect(bidBlockReason(auction({ status: "ENDED" }), "member")).toBe("競標已結束");
+    expect(bidBlockReason(auction(), "anonymous")).toBe("LOGIN");
+    expect(bidBlockReason(auction(), "needs_terms")).toBe("TERMS");
+    expect(bidBlockReason(auction({ is_seller: true }), "member")).toContain("賣家");
+    expect(bidBlockReason(auction({ is_highest_bidder: true }), "member")).toContain("最高出價者");
+    expect(bidBlockReason(auction(), "member")).toBeNull();
   });
 });
 
@@ -47,7 +48,7 @@ describe("BidPanel", () => {
   it("blocks out-of-range bids client side without calling the API", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
-    render(<BidPanel auction={auction()} loggedIn onBid={() => {}} />);
+    render(<BidPanel auction={auction()} viewer="member" onBid={() => {}} />);
     const input = screen.getByLabelText("出價金額");
     await userEvent.clear(input);
     await userEvent.type(input, "2000");
@@ -66,7 +67,7 @@ describe("BidPanel", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const onBid = vi.fn();
-    render(<BidPanel auction={auction()} loggedIn onBid={onBid} />);
+    render(<BidPanel auction={auction()} viewer="member" onBid={onBid} />);
     const input = screen.getByLabelText("出價金額");
     await userEvent.clear(input);
     await userEvent.type(input, "1100");
@@ -83,13 +84,18 @@ describe("BidPanel", () => {
         new Response(JSON.stringify({ error: { code: "BID_OUT_OF_RANGE", message: "出價需介於 1100 ~ 1550" } }), { status: 400 }),
       ),
     );
-    render(<BidPanel auction={auction()} loggedIn onBid={() => {}} />);
+    render(<BidPanel auction={auction()} viewer="member" onBid={() => {}} />);
     await userEvent.click(screen.getByRole("button", { name: "出價" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("出價需介於 1100 ~ 1550");
   });
 
+  it("sends users who have not accepted terms to the terms page", () => {
+    render(<BidPanel auction={auction()} viewer="needs_terms" onBid={() => {}} />);
+    expect(screen.getByRole("link", { name: "同意使用者條款後出價" })).toHaveAttribute("href", "/terms?next=%2Fauctions%2Fa1");
+  });
+
   it("asks anonymous users to log in", () => {
-    render(<BidPanel auction={auction()} loggedIn={false} onBid={() => {}} />);
+    render(<BidPanel auction={auction()} viewer="anonymous" onBid={() => {}} />);
     expect(screen.getByRole("link", { name: "登入後出價" })).toHaveAttribute("href", "/login?next=%2Fauctions%2Fa1");
   });
 });

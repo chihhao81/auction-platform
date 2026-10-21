@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { BidPanel } from "@/components/BidPanel";
+import { BidPanel, type Viewer } from "@/components/BidPanel";
 import { ImageGallery } from "@/components/ImageGallery";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError, api } from "@/lib/api";
@@ -14,6 +14,11 @@ import { formatRemaining, formatTaipei } from "@/lib/time";
 import type { AuctionDetail, AuctionDetailResponse } from "@/lib/types";
 
 const POLL_MS = 5000;
+
+function viewerOf(state: ReturnType<typeof useAuth>["state"]): Viewer {
+  if (state.status !== "authenticated") return "anonymous";
+  return state.me.terms.accepted ? "member" : "needs_terms";
+}
 
 export function AuctionDetailView() {
   const { id } = useParams<{ id: string }>();
@@ -79,7 +84,7 @@ export function AuctionDetailView() {
             )}
           </p>
           <div className="mt-4">
-            <BidPanel auction={auction} loggedIn={state.status === "authenticated"} onBid={() => void load()} />
+            <BidPanel auction={auction} viewer={viewerOf(state)} onBid={() => void load()} />
           </div>
         </section>
 

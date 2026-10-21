@@ -44,12 +44,14 @@ func New(t *testing.T) *pgxpool.Pool {
 		admin.Close()
 	})
 
-	u, err := url.Parse(base)
+	// Neon ignores a plain search_path startup parameter (and poolers drop
+	// startup options), so connect directly and pass it via "options".
+	u, err := url.Parse(database.DirectURL(base))
 	if err != nil {
 		t.Fatal(err)
 	}
 	q := u.Query()
-	q.Set("search_path", schema)
+	q.Set("options", "-c search_path="+schema)
 	u.RawQuery = q.Encode()
 	if err := database.Migrate(u.String()); err != nil {
 		t.Fatalf("migrate: %v", err)

@@ -34,6 +34,8 @@
   * 單元測試層仍採用 Mock DB（`pgxmock`），無需網路即可執行獨立單元測試。
 * **Migration**：`golang-migrate`，SQL 檔以 `embed` 打包進 binary，`MIGRATE_ON_START=true` 時啟動自動套用。需 PostgreSQL 13+（使用內建 `gen_random_uuid()`）。
 * **連線池**：MaxConns 10、MinConns 0（讓 Neon 可 scale to zero）。
+* **Neon pooler 注意**：`DATABASE_URL` 可用 pooled host（`ep-xxx-pooler...`）給 app 使用；但 migration 需要 session 級 advisory lock，`database.Migrate` 會自動以 `database.DirectURL` 改連 direct host。Neon 會忽略 `search_path` 啟動參數，需以 `options=-c search_path=...` 傳遞（整合測試即如此隔離 schema）。
+* 2026-10-21：Neon `public` 內舊版遺留的空資料表（另一版 schema）經使用者同意已刪除，改由本專案 migration 建立。
 
 ### ADR-03: 後端 ORM / 查詢建構器 (sqlc + pgx)
 * **決策**：採用 `sqlc` 搭配 `pgx/v5`，HTTP router 使用 `chi`。
@@ -116,7 +118,7 @@
   * 安全基礎：CSRF、per-IP rate limit、安全標頭、嚴格 JSON
   * Audit：LOGIN / LOGIN_REJECTED_BANNED / LOGOUT / USER_CREATE / TERMS_ACCEPT（DB trigger 禁止 UPDATE/DELETE audit_logs）
   * 前端：登入、條款、個人頁、NavBar、API client
-* [x] **Phase 2: 競標與出價防併發**（2026-10-21 程式與單元測試完成；**真實 DB 整合測試尚未執行**——開發環境無 PostgreSQL，需提供 `TEST_DATABASE_URL`）
+* [x] **Phase 2: 競標與出價防併發**（2026-10-21 完成；Neon PostgreSQL 18 整合測試 6/6 通過；瀏覽器端對端驗證：mock 登入→條款→發布→出價→首頁批次 polling→Audit Log）
   * 發布 / 編輯（僅 UPCOMING、僅賣家）競標，含預設值、圖片 1~4 張、每人最多 5 筆 UPCOMING+ACTIVE
   * 出價：範圍驗證、賣家不可出價、最高出價者不可連續出價、row lock、結束前 ≤1 分鐘出價延長 2 分鐘
   * 首頁：關鍵字（ILIKE，跳脫 `%` `_`）+ 狀態搜尋、CLOSED 不顯示、單一 API `/api/auctions/prices?ids=` 每 5 秒批次更新
@@ -161,15 +163,15 @@
 1. **定時處理**：backend 內建單一定時 function，**預設每 1 分鐘**執行一次，處理到期結標（得標紀錄、通知、合併訂單等待）、通知與逾期判定。間隔以環境變數設定（部署機器太弱時可調為 5 或 10 分鐘）。每次執行需為冪等（重複執行或漏跑一輪都不可產生重複結果）。
 2. **AWAITING_CONTACT → AWAITING_PAYMENT**：買家在訂單訊息傳出第一則訊息時自動轉換。
 3. **PAID → AWAITING_SHIPMENT**：綠界付款 callback 經後端驗證成功後自動轉換（PAID 為中間狀態，同一交易內完成）。
-4. **RECEIVED → COMPLETED**：買家按「完成」，或進入 RECEIVED 後 7 天由定時 function 自動完成。
-5. **24 小時未聯絡**：訂單狀態不變，加上「逾期」標記，寫 Audit Log 並自動建立檢舉買家（交管理員處理）。
-6. **買家寄件資訊**：付款後由買家於訂單填寫，僅該訂單賣家可見。
-7. **第一口出價**：維持 `start_price + min_increment ~ start_price + max_increment`。
+4. **SHIPPED → RECEIVED**：買家確認收貨，或出貨後 **3 天**由定時 function 自動轉換（天數可用環境變數調整）。
+5. **RECEIVED → COMPLETED**：買家按「完成」，或進入 RECEIVED 後 7 天由定時 function 自動完成。
+6. **24 小時未聯絡**：訂單狀態不變，加上「逾期」標記，寫 Audit Log 並自動建立檢舉買家（交管理員處理）。
+7. **買家寄件資訊**：付款後由買家於訂單填寫，僅該訂單賣家可見。
+8. **第一口出價**：維持 `start_price + min_increment ~ start_price + max_increment`。
 
 ## 6. 待確認事項
 
 1. 綠界：需要測試環境商店代號 / HashKey / HashIV（可先用綠界公開測試帳號）。
-2. 「已出貨 → 已收貨」是否也需要逾時自動轉換（目前規劃：僅買家手動確認）。
 
 ## 7. 本機開發
 
@@ -178,7 +180,8 @@
 cd backend && cp .env.example .env   # 填入 DATABASE_URL
 go run ./cmd/server                   # 啟動時自動 migrate
 go test ./...                         # 單元測試（無需 DB）
-TEST_DATABASE_URL=postgres://... go test ./...   # 加上真實 DB 整合測試
+# 整合測試：在 backend/.env 設定 TEST_DATABASE_URL，然後
+export TEST_DATABASE_URL="$(grep ^TEST_DATABASE_URL= .env | cut -d= -f2-)" && go test ./...
 sqlc generate                         # 修改 queries/ 或 migrations/ 後
 
 # frontend（Node 24）
