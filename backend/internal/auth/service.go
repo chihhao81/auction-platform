@@ -64,11 +64,31 @@ type LoginResult struct {
 // user and opens a session. Banned users are rejected (and the attempt is
 // audited) without creating a session.
 func (s *Service) Login(ctx context.Context, code string) (LoginResult, error) {
+	if s.line == nil {
+		return LoginResult{}, ErrLineLoginFailed
+	}
 	profile, err := s.line.Exchange(ctx, code)
 	if err != nil {
 		slog.WarnContext(ctx, "line exchange failed", "err", err)
 		return LoginResult{}, ErrLineLoginFailed
 	}
+	return s.loginProfile(ctx, profile, "line")
+}
+
+// TestLoginPrefix marks accounts created by password-protected test login.
+const TestLoginPrefix = "test-"
+
+// TestLogin signs in (creating if needed) the test account for name. The
+// caller must have verified the shared test password. Test accounts follow
+// every normal rule: terms, bans, audit logging.
+func (s *Service) TestLogin(ctx context.Context, name string) (LoginResult, error) {
+	return s.loginProfile(ctx, Profile{UserID: TestLoginPrefix + name, DisplayName: "[測試] " + name}, "test")
+}
+
+// loginProfile creates or refreshes the user for an authenticated identity
+// and opens a session. method ("line" / "test") is recorded in the audit log.
+func (s *Service) loginProfile(ctx context.Context, profile Profile, method string) (LoginResult, error) {
+	var err error
 	role := RoleUser
 	if s.admins[profile.UserID] {
 		role = RoleAdmin
@@ -111,7 +131,8 @@ func (s *Service) Login(ctx context.Context, code string) (LoginResult, error) {
 			return fmt.Errorf("create session: %w", err)
 		}
 		res = LoginResult{Token: token, ExpiresAt: expires, User: user}
-		return audit.Record(ctx, q, now, audit.Entry{Actor: user.ID, Action: audit.ActionLogin, TargetType: audit.TargetUser, TargetID: target})
+		return audit.Record(ctx, q, now, audit.Entry{Actor: user.ID, Action: audit.ActionLogin, TargetType: audit.TargetUser, TargetID: target,
+			Metadata: map[string]any{"method": method}})
 	})
 	if err != nil {
 		return LoginResult{}, err

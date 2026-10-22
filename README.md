@@ -35,6 +35,8 @@ cd frontend && cp .env.example .env.local && npm install
 npm run dev                              # http://localhost:3000
 ```
 
+部署環境的初期測試可用「測試登入」（設定 `TEST_LOGIN_PASSWORD`，任意名稱＋共用密碼，見 deploy/README.md §7.5）。
+
 Mock 登入：`http://localhost:3000/api/auth/line/login?mock_user=alice`。`.env.example` 預設 `ADMIN_LINE_USER_IDS=mock-admin`，所以用 `mock_user=admin` 登入即為管理員。
 
 ## 測試

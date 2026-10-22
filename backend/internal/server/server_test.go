@@ -22,6 +22,8 @@ import (
 // TestEveryOtherRouteRequiresLogin fail.
 var publicRoutes = map[string]bool{
 	"GET /api/health":                 true,
+	"GET /api/auth/methods":           true,
+	"POST /api/auth/test-login":       true, // requires TEST_LOGIN_PASSWORD; 404 when unset
 	"GET /api/auth/line/login":        true,
 	"GET /api/auth/line/callback":     true,
 	"GET /api/terms":                  true,

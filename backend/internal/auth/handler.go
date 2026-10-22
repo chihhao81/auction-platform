@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"log/slog"
 	"net/http"
@@ -22,18 +23,27 @@ const (
 
 type Handler struct {
 	svc          *Service
-	line         LineClient
+	line         LineClient // nil when LINE Login is not configured
 	frontendURL  string
 	cookieSecure bool
 	mock         bool
+	// TestPassword enables POST /auth/test-login when non-empty.
+	TestPassword string
+	// testLimit throttles test-login attempts per IP (brute-force guard).
+	testLimit *httpx.RateLimiter
 }
 
 func NewHandler(svc *Service, line LineClient, frontendURL string, cookieSecure, mock bool) *Handler {
-	return &Handler{svc: svc, line: line, frontendURL: frontendURL, cookieSecure: cookieSecure, mock: mock}
+	return &Handler{
+		svc: svc, line: line, frontendURL: frontendURL, cookieSecure: cookieSecure, mock: mock,
+		testLimit: httpx.NewRateLimiter(5.0/600, 5), // 5 attempts, then 1 per 2 minutes
+	}
 }
 
 // Routes mounts the auth endpoints. LoadUser must run before these.
 func (h *Handler) Routes(r chi.Router) {
+	r.Get("/auth/methods", httpx.Handle(h.methods))
+	r.Post("/auth/test-login", httpx.Handle(h.testLogin))
 	r.Get("/auth/line/login", h.login)
 	r.Get("/auth/line/callback", h.callback)
 	r.Get("/terms", httpx.Handle(h.getTerms))
@@ -70,7 +80,70 @@ func (h *Handler) loginError(w http.ResponseWriter, r *http.Request, code string
 
 // login starts the OAuth flow. The random state is bound to the browser via
 // an HttpOnly cookie and checked on callback, preventing login CSRF.
+// methods tells the login page which sign-in options exist.
+func (h *Handler) methods(w http.ResponseWriter, r *http.Request) error {
+	httpx.WriteJSON(w, http.StatusOK, map[string]bool{
+		"line": h.line != nil && !h.mock, "mock": h.mock, "test": h.TestPassword != "",
+	})
+	return nil
+}
+
+var (
+	errTestLoginDisabled = apperr.NotFound("NOT_FOUND", "找不到資源")
+	errTestLoginInvalid  = apperr.Unauthorized("INVALID_TEST_LOGIN", "測試帳號名稱或密碼錯誤")
+)
+
+// testLogin signs in a test account with the shared TEST_LOGIN_PASSWORD.
+func (h *Handler) testLogin(w http.ResponseWriter, r *http.Request) error {
+	if h.TestPassword == "" {
+		return errTestLoginDisabled
+	}
+	if !h.testLimit.Allow(httpx.MetaFromContext(r.Context()).IP) {
+		return apperr.TooMany("RATE_LIMITED", "嘗試次數過多，請稍後再試")
+	}
+	var req struct {
+		Name     string `json:"name"`
+		Password string `json:"password"`
+	}
+	if err := httpx.DecodeJSON(w, r, &req); err != nil {
+		return err
+	}
+	// Compare fixed-length digests so timing reveals nothing about the length.
+	got, want := sha256.Sum256([]byte(req.Password)), sha256.Sum256([]byte(h.TestPassword))
+	if subtle.ConstantTimeCompare(got[:], want[:]) != 1 || !mockNameRe.MatchString(req.Name) {
+		slog.WarnContext(r.Context(), "test login rejected", "ip", httpx.MetaFromContext(r.Context()).IP)
+		return errTestLoginInvalid
+	}
+	h.endPreviousSession(w, r)
+	res, err := h.svc.TestLogin(r.Context(), req.Name)
+	if err != nil {
+		return err
+	}
+	h.setCookie(w, SessionCookieName, res.Token, time.Until(res.ExpiresAt))
+	w.WriteHeader(http.StatusNoContent)
+	return nil
+}
+
+// endPreviousSession revokes and clears any session this browser holds, so
+// a new (or rejected) login never leaves the previous user signed in.
+func (h *Handler) endPreviousSession(w http.ResponseWriter, r *http.Request) {
+	c, err := r.Cookie(SessionCookieName)
+	if err != nil || c.Value == "" {
+		return
+	}
+	if prev, err := h.svc.Authenticate(r.Context(), c.Value); err == nil && prev != nil {
+		if err := h.svc.Logout(r.Context(), c.Value, prev); err != nil {
+			slog.WarnContext(r.Context(), "end previous session", "err", err)
+		}
+	}
+	h.clearCookie(w, SessionCookieName)
+}
+
 func (h *Handler) login(w http.ResponseWriter, r *http.Request) {
+	if h.line == nil {
+		h.loginError(w, r, "LINE_NOT_CONFIGURED")
+		return
+	}
 	state := httpx.RandomToken()
 	h.setCookie(w, stateCookieName, state, stateCookieTTL)
 	h.setCookie(w, nextCookieName, url.QueryEscape(httpx.SafeRedirectPath(r.URL.Query().Get("next"))), stateCookieTTL)
@@ -104,14 +177,7 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	// failed or rejected login (e.g. a banned account) never leaves the
 	// previous user signed in on a shared device. Done after the state check
 	// so a forged callback cannot be used to log people out.
-	if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" {
-		if prev, err := h.svc.Authenticate(r.Context(), c.Value); err == nil && prev != nil {
-			if err := h.svc.Logout(r.Context(), c.Value, prev); err != nil {
-				slog.WarnContext(r.Context(), "end previous session", "err", err)
-			}
-		}
-		h.clearCookie(w, SessionCookieName)
-	}
+	h.endPreviousSession(w, r)
 	if q.Get("error") != "" || q.Get("code") == "" {
 		h.loginError(w, r, "LINE_DENIED")
 		return

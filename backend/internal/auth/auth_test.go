@@ -15,6 +15,7 @@ import (
 
 	"auction-platform/backend/internal/apperr"
 	"auction-platform/backend/internal/database/db"
+	"auction-platform/backend/internal/httpx"
 	"auction-platform/backend/internal/store"
 	"auction-platform/backend/internal/terms"
 )
@@ -317,5 +318,76 @@ func TestForgedCallbackDoesNotEndSession(t *testing.T) {
 		if c.Name == SessionCookieName {
 			t.Fatal("a forged callback must not touch the session")
 		}
+	}
+}
+
+func testLoginRequest(name, password string) *http.Request {
+	body, _ := json.Marshal(map[string]string{"name": name, "password": password})
+	req := httptest.NewRequest(http.MethodPost, "/api/auth/test-login", strings.NewReader(string(body)))
+	req.Header.Set("Content-Type", "application/json")
+	return req.WithContext(httpx.WithMeta(req.Context(), httpx.RequestMeta{IP: "198.51.100.7"}))
+}
+
+func TestTestLoginRejections(t *testing.T) {
+	svc, _ := newMockService(t, nil) // no DB access expected for any rejection
+	h := NewHandler(svc, nil, "http://front", false, false)
+
+	if err := h.testLogin(httptest.NewRecorder(), testLoginRequest("alice", "x")); !apperr.IsCode(err, "NOT_FOUND") {
+		t.Fatalf("disabled test login must look like a missing route: %v", err)
+	}
+	h.TestPassword = "correct horse battery staple"
+	for _, tc := range []struct{ name, pw string }{
+		{"alice", "wrong password"},
+		{"bad name!", "correct horse battery staple"},
+		{"", "correct horse battery staple"},
+	} {
+		if err := h.testLogin(httptest.NewRecorder(), testLoginRequest(tc.name, tc.pw)); !apperr.IsCode(err, "INVALID_TEST_LOGIN") {
+			t.Fatalf("%q/%q: %v", tc.name, tc.pw, err)
+		}
+	}
+	// 3 attempts used above; 2 more allowed, then the IP is throttled.
+	for range 2 {
+		_ = h.testLogin(httptest.NewRecorder(), testLoginRequest("alice", "nope"))
+	}
+	if err := h.testLogin(httptest.NewRecorder(), testLoginRequest("alice", "correct horse battery staple")); !apperr.IsCode(err, "RATE_LIMITED") {
+		t.Fatalf("brute force must be throttled even with the right password: %v", err)
+	}
+}
+
+func TestTestLoginSuccess(t *testing.T) {
+	svc, mock := newMockService(t, map[string]bool{"test-admin": true})
+	id := uuid.New()
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO users").WithArgs("test-admin", "[測試] admin", "", RoleAdmin).
+		WillReturnRows(pgxmock.NewRows(upsertCols).AddRow(id, "test-admin", "[測試] admin", "", RoleAdmin, StatusActive, fixedNow, fixedNow, false))
+	mock.ExpectExec("INSERT INTO sessions").WithArgs(pgxmock.AnyArg(), id, "198.51.100.7", pgxmock.AnyArg(), fixedNow, fixedNow.Add(time.Hour)).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(pgxmock.AnyArg(), "LOGIN", "USER", id.String(), []byte(`{"method":"test"}`), pgxmock.AnyArg(), pgxmock.AnyArg(), fixedNow).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectCommit()
+
+	h := NewHandler(svc, nil, "http://front", false, false)
+	h.TestPassword = "correct horse battery staple"
+	rec := httptest.NewRecorder()
+	if err := h.testLogin(rec, testLoginRequest("admin", "correct horse battery staple")); err != nil {
+		t.Fatal(err)
+	}
+	if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Set-Cookie"), SessionCookieName+"=") {
+		t.Fatalf("status %d cookies %v", rec.Code, rec.Header().Values("Set-Cookie"))
+	}
+}
+
+func TestLineLoginWhenNotConfigured(t *testing.T) {
+	svc, _ := newMockService(t, nil)
+	h := NewHandler(svc, nil, "http://front", false, false)
+	rec := httptest.NewRecorder()
+	h.login(rec, httptest.NewRequest(http.MethodGet, "/api/auth/line/login", nil))
+	if loc := rec.Header().Get("Location"); loc != "http://front/login?error=LINE_NOT_CONFIGURED" {
+		t.Fatalf("Location = %q", loc)
+	}
+	mrec := httptest.NewRecorder()
+	_ = h.methods(mrec, httptest.NewRequest(http.MethodGet, "/api/auth/methods", nil))
+	if strings.TrimSpace(mrec.Body.String()) != `{"line":false,"mock":false,"test":false}` {
+		t.Fatalf("methods = %s", mrec.Body.String())
 	}
 }

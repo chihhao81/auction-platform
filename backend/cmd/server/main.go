@@ -61,12 +61,18 @@ func run() error {
 	defer pool.Close()
 	st := store.New(pool)
 
-	var line auth.LineClient
-	if cfg.MockLineAuth {
+	var line auth.LineClient // nil when no LINE login is available
+	switch {
+	case cfg.MockLineAuth:
 		slog.Warn("MOCK_LINE_AUTH is enabled: anyone can log in as any mock user")
 		line = auth.MockLineClient{FrontendURL: cfg.FrontendURL}
-	} else {
+	case cfg.LineEnabled():
 		line = auth.NewHTTPLineClient(cfg.LineChannelID, cfg.LineChannelSecret, cfg.LineRedirectURI)
+	default:
+		slog.Warn("LINE Login is not configured")
+	}
+	if cfg.TestLoginPassword != "" {
+		slog.Warn("TEST_LOGIN_PASSWORD is set: password-protected test accounts are enabled; remove it before real launch")
 	}
 	now := func() time.Time { return time.Now().UTC() }
 	authSvc := auth.NewService(st, line, cfg.AdminLineUserIDs, cfg.SessionTTL, now)

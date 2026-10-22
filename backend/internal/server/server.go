@@ -69,7 +69,9 @@ func NewRouter(d Deps) http.Handler {
 
 		r.Group(func(r chi.Router) {
 			r.Use(d.Auth.LoadUser)
-			auth.NewHandler(d.Auth, d.Line, d.Config.FrontendURL, d.Config.CookieSecure, d.Config.MockLineAuth).Routes(r)
+			ah := auth.NewHandler(d.Auth, d.Line, d.Config.FrontendURL, d.Config.CookieSecure, d.Config.MockLineAuth)
+			ah.TestPassword = d.Config.TestLoginPassword
+			ah.Routes(r)
 			auction.NewHandler(d.Auction).Routes(r)
 			order.NewHandler(d.Order).Routes(r)
 			payment.NewHandler(d.Payment).Routes(r)

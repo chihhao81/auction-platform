@@ -166,6 +166,15 @@
 * `audit_logs` 加入 `seq` 排序（migration 000007）；管理後台新增「稽核紀錄」查詢（依動作、對象、操作者篩選）。
 * 定時 job 另外會清除過期或撤銷超過 7 天的 session。
 
+### ADR-21: 測試登入與 CI（部署初期）
+* **測試登入**（使用者需求：初期沒有多個 LINE 帳號可扮演管理員/賣家/多個買家）：設定 `TEST_LOGIN_PASSWORD`（≥16 字元）後，登入頁出現「測試登入」，輸入任意名稱（`[a-zA-Z0-9_-]{1,32}`）＋共用密碼即可登入帳號 `test-<name>`（顯示名稱「[測試] name」）。可在 production 使用，與 Mock 不同（Mock 在 production 仍被拒絕）。
+  * 密碼以 SHA-256 摘要做 constant-time 比較；每 IP 5 次後每 2 分鐘 1 次；失敗記 log；成功寫 LOGIN audit（metadata `method: test`）；登入前結束舊 session；停權、條款等規則與 LINE 帳號完全相同。未設定時端點回 404。
+  * 管理員：`ADMIN_LINE_USER_IDS=test-admin`。正式上線前刪除 `TEST_LOGIN_PASSWORD` 即關閉（不需改程式）。
+  * 登入方式由後端 `GET /api/auth/methods` 決定，前端不再使用 `NEXT_PUBLIC_MOCK_LOGIN`。
+  * LINE 改為可選：只要有任一登入方式（LINE 三項設定、`TEST_LOGIN_PASSWORD`、或開發用 Mock）即可啟動；LINE 三項需同時設定（Mock 模式下忽略）。
+* **CI**（`.github/workflows/ci.yml`）：push 到 main / PR 時在 Ubuntu 上跑 gofmt、vet、測試（有 `TEST_DATABASE_URL` secret 才跑整合測試）、govulncheck、amd64/arm64 build（產物上傳為 artifact）與前端測試/型別/lint/build。
+  * 2026-10-22：使用者電腦的 Windows Defender 以行為偵測 `Behavior:Win32/DefenseEvasion.A!ml` 封鎖官方 go1.27.3 的 `go.exe`（Go 在暫存目錄產生並執行測試/編譯檔的行為常被誤判）。未替使用者加入例外；正式 binary 改由 CI 產生。本機要再跑 Go 需使用者自行在「保護歷程記錄」允許。
+
 ### ADR-13: Next.js 16 注意事項
 * 本專案使用 Next.js 16.4（`cacheComponents` + `partialPrefetching` 開啟）。與舊版差異大，開發前請閱讀 `frontend/node_modules/next/dist/docs/`（`frontend/AGENTS.md` 亦有提醒）。
 * 使用 `useSearchParams()` / `usePathname()` / `useParams()` 的 Client Component 必須包在 `<Suspense>` 內，否則 build 失敗（`RequireMember` 已內建 Suspense）。

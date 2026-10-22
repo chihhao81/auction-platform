@@ -105,3 +105,32 @@ func TestEnvTemplatesOnlyUseKnownKeys(t *testing.T) {
 		}
 	}
 }
+
+func TestLoginMethodConfig(t *testing.T) {
+	prod := func(extra map[string]string) map[string]string {
+		m := map[string]string{"APP_ENV": "production", "DATABASE_URL": "postgres://x", "FRONTEND_URL": "https://app.example.com"}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+	if _, err := load(env(prod(nil))); err == nil || !strings.Contains(err.Error(), "no login method") {
+		t.Fatalf("production without any login method must fail: %v", err)
+	}
+	if _, err := load(env(prod(map[string]string{"TEST_LOGIN_PASSWORD": "short"}))); err == nil || !strings.Contains(err.Error(), "16 characters") {
+		t.Fatalf("short test password must fail: %v", err)
+	}
+	c, err := load(env(prod(map[string]string{"TEST_LOGIN_PASSWORD": "a-long-enough-test-pass"})))
+	if err != nil || c.LineEnabled() {
+		t.Fatalf("test login alone must be enough in production: %v", err)
+	}
+	if _, err := load(env(prod(map[string]string{"TEST_LOGIN_PASSWORD": "a-long-enough-test-pass", "LINE_CHANNEL_ID": "x"}))); err == nil || !strings.Contains(err.Error(), "set together") {
+		t.Fatalf("partial LINE config must fail: %v", err)
+	}
+	// The development template pre-fills LINE_REDIRECT_URI; with mock login on
+	// that must not block startup.
+	if _, err := load(env(map[string]string{"DATABASE_URL": "postgres://x", "MOCK_LINE_AUTH": "true",
+		"LINE_REDIRECT_URI": "http://localhost:3000/api/auth/line/callback"})); err != nil {
+		t.Fatalf("mock + template redirect URI must start: %v", err)
+	}
+}

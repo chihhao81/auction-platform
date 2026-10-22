@@ -23,6 +23,12 @@
 
 ## 認證與條款
 
+### `GET /api/auth/methods` — 公開
+`{"line":true,"mock":false,"test":false}`：目前可用的登入方式。
+
+### `POST /api/auth/test-login` — 公開（僅在設定 `TEST_LOGIN_PASSWORD` 時存在，否則 404）
+Body `{"name":"buyer1","password":"…"}` → 204 並設定 session cookie；帳號為 `test-<name>`。錯誤：401 `INVALID_TEST_LOGIN`、429 `RATE_LIMITED`（每 IP 5 次後每 2 分鐘 1 次）、403 `USER_BANNED`（停權帳號）。
+
 ### `GET /api/auth/line/login?next=/path` — 公開
 302 至 LINE 授權頁。Mock 模式另接受 `mock_user=<英數字-_ 1~32 字>`。
 

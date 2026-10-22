@@ -133,6 +133,14 @@ curl https://api.example.com/api/health # {"status":"ok"}
    * **不要**設定 `NEXT_PUBLIC_MOCK_LOGIN`
 3. Domains：綁定 `app.example.com`。
 
+## 7.5 初期測試：測試登入（不需要 LINE）
+
+在 `/etc/critter-bid/backend.env` 設定 `TEST_LOGIN_PASSWORD`（至少 16 字元，例如用 `openssl rand -base64 24` 產生）與 `ADMIN_LINE_USER_IDS=test-admin`，重啟服務後：
+
+* 登入頁會出現「測試登入」：輸入任意名稱（如 `admin`、`seller`、`buyer1`、`buyer2`）＋這組密碼，每個名稱都是獨立帳號。
+* `admin` 為管理員。可用不同瀏覽器或無痕視窗同時登入多個帳號一起競標。
+* 正式開放前**刪除 `TEST_LOGIN_PASSWORD`** 並重啟即可關閉；LINE 設定好之前可以只用測試登入。
+
 ## 8. 外部服務設定
 
 * **LINE Developers** → LINE Login channel → Callback URL：`https://app.example.com/api/auth/line/callback`；channel 狀態改為 Published。

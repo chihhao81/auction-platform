@@ -25,6 +25,9 @@ type Config struct {
 	LineChannelSecret string
 	LineRedirectURI   string
 	MockLineAuth      bool
+	// TestLoginPassword enables password-protected test accounts ("name +
+	// shared password") for early testing of a deployed site. Empty = off.
+	TestLoginPassword string
 	AdminLineUserIDs  map[string]bool
 
 	SessionTTL   time.Duration
@@ -73,6 +76,11 @@ type Config struct {
 	OrderAutoReceiveAfter  time.Duration
 	OrderAutoCompleteAfter time.Duration
 	ShippingInfoRetention  time.Duration
+}
+
+// LineEnabled reports whether real LINE Login is configured.
+func (c *Config) LineEnabled() bool {
+	return c.LineChannelID != "" && c.LineChannelSecret != "" && c.LineRedirectURI != ""
 }
 
 // ECPayEnabled reports whether ECPay payments are configured.
@@ -128,6 +136,7 @@ func load(getenv func(string) string) (*Config, error) {
 	}
 	c.MigrateOnStart = parseBool("MIGRATE_ON_START", true)
 	c.MockLineAuth = parseBool("MOCK_LINE_AUTH", false)
+	c.TestLoginPassword = getenv("TEST_LOGIN_PASSWORD") // not trimmed: spaces are allowed
 	c.CookieSecure = parseBool("COOKIE_SECURE", c.IsProduction())
 	c.SchedulerEnabled = parseBool("SCHEDULER_ENABLED", true)
 	c.R2Endpoint = get("R2_ENDPOINT", "")
@@ -178,8 +187,17 @@ func load(getenv func(string) string) (*Config, error) {
 	if c.MockLineAuth && c.IsProduction() {
 		errs = append(errs, errors.New("MOCK_LINE_AUTH must not be enabled in production"))
 	}
-	if !c.MockLineAuth && (c.LineChannelID == "" || c.LineChannelSecret == "" || c.LineRedirectURI == "") {
-		errs = append(errs, errors.New("LINE_CHANNEL_ID, LINE_CHANNEL_SECRET and LINE_REDIRECT_URI are required unless MOCK_LINE_AUTH=true"))
+	lineSet := c.LineChannelID != "" || c.LineChannelSecret != "" || c.LineRedirectURI != ""
+	// Mock login replaces LINE entirely, so partial LINE settings (e.g. the
+	// redirect URI pre-filled in .env.example) are only an error without it.
+	if lineSet && !c.LineEnabled() && !c.MockLineAuth {
+		errs = append(errs, errors.New("LINE_CHANNEL_ID, LINE_CHANNEL_SECRET and LINE_REDIRECT_URI must be set together"))
+	}
+	if c.TestLoginPassword != "" && len([]rune(c.TestLoginPassword)) < 16 {
+		errs = append(errs, errors.New("TEST_LOGIN_PASSWORD must be at least 16 characters"))
+	}
+	if !c.MockLineAuth && !c.LineEnabled() && c.TestLoginPassword == "" {
+		errs = append(errs, errors.New("no login method: set LINE_CHANNEL_ID/LINE_CHANNEL_SECRET/LINE_REDIRECT_URI, TEST_LOGIN_PASSWORD, or MOCK_LINE_AUTH=true (development only)"))
 	}
 	if (c.VAPIDPublicKey == "") != (c.VAPIDPrivateKey == "") {
 		errs = append(errs, errors.New("VAPID_PUBLIC_KEY and VAPID_PRIVATE_KEY must be set together"))
