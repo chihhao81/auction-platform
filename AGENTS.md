@@ -159,6 +159,8 @@
 * **R2**：`storage.S3`（minio-go）、region `auto`、單次 PUT（`DisableContentSha256`，不使用 aws-chunked）、`Cache-Control: immutable`；圖片由 R2 公開網域直接提供，不經過 VM。`STORAGE_BACKEND=local|r2`，設定不完整時拒絕啟動。
 * **依賴漏洞**：已升級 golang-jwt、x/crypto。**Go 標準函式庫需 1.27.3 以上**（1.27.0～1.27.2 有 net/http、crypto 漏洞）。`scripts/build-backend.sh` 會檢查版本，不符時拒絕 build。
   * 2026-10-22：曾在 go.mod 指定 `toolchain go1.27.3` 讓 Go 自動下載，但使用者電腦的 Windows Defender 將下載的工具鏈 `go.exe` 判定為病毒並封鎖（很可能是誤判，但未繞過防毒）。因此已移除 toolchain 指定，改由 build script 檢查版本，並建議從 go.dev 下載官方安裝程式更新。
+  * 2026-10-22：使用者下載 go.dev 官方安裝檔，經 SHA256 比對無誤後，以 MSI 安裝 **go1.27.3（windows/amd64）**，Defender 未再攔截。重新驗證：govulncheck 0 個會影響程式的漏洞、全部測試通過、amd64／arm64 正式 build 成功。
+* **換行符號**：`.gitattributes` 強制 `*.sh`、`*.go`、`*.sql`、`deploy/` 下的設定檔使用 LF，避免在 Windows 上 checkout 後部署到 Linux 時 script 無法執行。
 * **設定檔一致性測試**：`.env.example` 與 `deploy/backend.env.production.example` 中的每個設定名稱都必須是 config 實際讀取的（防止打錯字而默默使用預設值）。
 * **部署**：`deploy/`（systemd 安全強化設定、`GOMEMLIMIT=300MiB`／`MemoryMax=450M`、Caddy 自動 HTTPS、正式環境設定範本、部署手冊）；`scripts/build-backend.sh amd64|arm64` 產生靜態 binary。
 * `audit_logs` 加入 `seq` 排序（migration 000007）；管理後台新增「稽核紀錄」查詢（依動作、對象、操作者篩選）。
@@ -247,7 +249,7 @@
 ## 7. 本機開發
 
 ```bash
-# backend（Go 1.27、PostgreSQL 13+ 或 Neon 連線字串）
+# backend（Go 1.27.3+、PostgreSQL 13+ 或 Neon 連線字串）
 cd backend && cp .env.example .env   # 填入 DATABASE_URL
 go run ./cmd/server                   # 啟動時自動 migrate
 go test ./...                         # 單元測試（無需 DB）

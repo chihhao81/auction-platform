@@ -1,0 +1,8 @@
+# Files that run or are read on Linux (the Oracle VM) must keep LF endings,
+# even when the repo is checked out on Windows with core.autocrlf=true.
+*.sh                 text eol=lf
+deploy/Caddyfile     text eol=lf
+deploy/*.service     text eol=lf
+deploy/*.example     text eol=lf
+*.sql                text eol=lf
+*.go                 text eol=lf

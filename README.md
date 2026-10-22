@@ -55,7 +55,8 @@ npm test && npm run typecheck && npm run lint && npm run build
 |---|---|
 | 後端 | 18 個 package 全數通過；164 個測試（含子測試），其中 **28 個是在 Neon PostgreSQL 18 上執行的整合測試** |
 | 前端 | 8 個測試檔、42 個測試全數通過；TypeScript、ESLint、production build 皆通過 |
-| 依賴漏洞 | Go 依賴：0 個會影響程式的漏洞（Go 標準函式庫需 **1.27.3 以上**，build script 會強制檢查）；npm 正式依賴：0 個漏洞 |
+| 依賴漏洞 | `govulncheck`（Go 1.27.3）：0 個會影響程式的漏洞；npm 正式依賴：0 個漏洞。Go 版本需 **1.27.3 以上**，build script 會強制檢查 |
+| 正式 build | `scripts/build-backend.sh amd64` 與 `arm64` 皆成功（約 15 MB 靜態 binary） |
 | 瀏覽器端對端 | 每個 Phase 都實際操作驗證過（見 AGENTS.md 各 Phase 紀錄） |
 
 重點測試涵蓋：
