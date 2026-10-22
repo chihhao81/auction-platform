@@ -118,9 +118,11 @@ export function AuctionForm({ existing }: Props) {
     setValues((v) => ({ ...v, [k]: e.target.value }));
 
   function addFiles(list: FileList | null) {
-    if (!list) return;
-    const room = MAX_IMAGES - kept.length - files.length;
-    setFiles((prev) => [...prev, ...Array.from(list).slice(0, Math.max(0, room))]);
+    // Copy now: the FileList is live and is emptied as soon as the input is
+    // reset (e.target.value = ""), which happens before the state updater runs.
+    const picked = list ? Array.from(list) : [];
+    if (picked.length === 0) return;
+    setFiles((prev) => [...prev, ...picked].slice(0, Math.max(0, MAX_IMAGES - kept.length)));
   }
 
   async function submit(e: FormEvent) {
