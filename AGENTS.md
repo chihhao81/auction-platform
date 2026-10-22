@@ -185,6 +185,9 @@
 * **VAPID 金鑰**在 VM 上以 openssl 產生，只存在 VM。
 * **Caddy 日誌**寫入 systemd journal（`journalctl -u caddy`）；寫檔到 `/var/log/caddy` 在此 VM 上會權限錯誤，已改用 journal。
 * **GitHub**：`main` 已替換為本版本；原本另一份實作（Phase 1A＋2）備份於 `archive/remote-main-1008`。
+* **正式網址**：前端 **https://auction-platform-zeta-flame.vercel.app**（Vercel 專案 `auction-platform`，Root Directory `frontend`，環境變數 `BACKEND_URL=https://161-33-186-104.sslip.io`）。後端 `FRONTEND_URL`／`PUBLIC_BASE_URL` 已設為此網址。
+* **網路**：Oracle VCN Default Security List 已開放 TCP 80/443；Caddy 已取得 Let's Encrypt 憑證。已驗證：經 Vercel 代理到後端正常、後端記錄的 client IP 為訪客真實 IP（`CLIENT_IP_HEADER=X-Real-IP` 正確）、CSP／HSTS 生效。
+* **尚待驗收**（需使用者登入操作）：測試登入→刊登→多帳號出價→結標→訂單→綠界 stage 測試卡付款（callback 現在可抵達）→出貨→評價；手機 Web Push。
 
 ### ADR-13: Next.js 16 注意事項
 * 本專案使用 Next.js 16.4（`cacheComponents` + `partialPrefetching` 開啟）。與舊版差異大，開發前請閱讀 `frontend/node_modules/next/dist/docs/`（`frontend/AGENTS.md` 亦有提醒）。
