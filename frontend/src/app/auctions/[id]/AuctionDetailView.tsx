@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { BidPanel, type Viewer } from "@/components/BidPanel";
 import { ImageGallery } from "@/components/ImageGallery";
+import { SellerCard } from "@/components/SellerCard";
 import { StatusBadge } from "@/components/StatusBadge";
 import { ApiError, api } from "@/lib/api";
 import { useAuth } from "@/lib/auth";
@@ -116,18 +117,11 @@ export function AuctionDetailView() {
           </dl>
         </section>
 
-        <section className="flex items-center gap-3 rounded-xl bg-white p-4 shadow">
-          {auction.seller.avatar_url ? (
-            // eslint-disable-next-line @next/next/no-img-element -- remote LINE avatar
-            <img src={auction.seller.avatar_url} alt="" className="h-10 w-10 rounded-full" />
-          ) : (
-            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-emerald-100">👤</span>
-          )}
-          <div>
-            <p className="text-xs text-gray-500">賣家</p>
-            <p className="font-medium">{auction.seller.display_name}</p>
-          </div>
-        </section>
+        <SellerCard
+          seller={auction.seller}
+          auctionId={auction.id}
+          canReport={viewerOf(state) === "member" && !auction.is_seller}
+        />
       </div>
 
       <section className="rounded-xl bg-white p-4 shadow md:col-span-2">

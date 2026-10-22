@@ -141,6 +141,17 @@
 * `reports` 表已依 Phase 5 需求建立（PENDING/REVIEWING/RESOLVED/REJECTED、處理者、處理時間）。
 * **排序**：同一交易內建立的列 `created_at` 相同、UUID 又是隨機的，`messages` 與 `notifications` 以 identity 欄位 `seq` 排序（migration 000005）。之後新增「依建立順序列出」的資料表也應比照。
 
+### ADR-19: 評價、檢舉、管理員與 BAN（Phase 5）
+* **評價**：綁定 COMPLETED 訂單，買賣雙方各評價對方一次（`UNIQUE(order_id, reviewer_id)`），正評/負評＋500 字內留言，送出後不可修改。公開個人頁 `/users/{id}` 顯示正評、負評、完成交易數與被評價紀錄（不含 LINE ID 或聯絡資料）。
+* **檢舉**：競標（同時記錄賣家）或使用者，原因為固定選項；不可檢舉自己/自己的競標；同一檢舉人對同一對象同時只能有一筆處理中（partial unique index）。系統自動檢舉（逾期未聯絡）reporter 為 NULL。結案（RESOLVED/REJECTED）會通知檢舉人。
+* **BAN**：`users.status` + `user_bans` 歷史（停權/解除的時間、操作者、原因，一人最多一筆生效中），BAN 同時撤銷所有 session，因此立即無法登入、出價、刊登、傳訊與成立訂單；不可停權管理員或自己；歷史資料不刪除。
+* **得標者在結標時已被 BAN**：不建立得標紀錄與訂單，通知賣家（Audit 記錄 winner_banned）。
+* **管理員關閉競標**：只限尚未結標者；設 `closed_at/closed_by/close_reason` 並同時設 `settled_at`（永不成立訂單）。`auction.StatusOf` 先判斷 `closed_at`；所有列表、價格 polling、開放中數量計算皆排除；通知賣家與所有出價者。
+* **管理員取消訂單**：只限未付款（AWAITING_CONTACT/AWAITING_PAYMENT）或 DISPUTED；已付款訂單需走爭議/退款流程。
+* **付款異常清單**：DUPLICATE / AMOUNT_MISMATCH 的付款列在後台，需至綠界後台人工退款或核對。
+* 所有管理員寫入操作都必須填原因，與變更同交易寫 Audit（USER_BAN / USER_UNBAN / AUCTION_CLOSE / ORDER_STATUS_CHANGE / REPORT_UPDATE）。查詢操作不寫 Audit。
+* **登入時先結束舊 session**：OAuth callback 在 state 驗證通過後，會先撤銷並清除瀏覽器上既有的 session，避免「被拒絕的登入（如已停權帳號）」讓前一位使用者在共用裝置上維持登入。
+
 ### ADR-13: Next.js 16 注意事項
 * 本專案使用 Next.js 16.4（`cacheComponents` + `partialPrefetching` 開啟）。與舊版差異大，開發前請閱讀 `frontend/node_modules/next/dist/docs/`（`frontend/AGENTS.md` 亦有提醒）。
 * 使用 `useSearchParams()` / `usePathname()` / `useParams()` 的 Client Component 必須包在 `<Suspense>` 內，否則 build 失敗（`RequireMember` 已內建 Suspense）。
@@ -177,11 +188,11 @@
   * 訂單訊息、首則訊息觸發聯絡、收件資訊（隱私與定期清除）、出貨、收貨、完成
   * 24 小時逾期標記＋系統檢舉、自動收貨（3 天）、自動完成（7 天）
   * Audit：PAYMENT_CREATE / PAYMENT_STATUS_CHANGE / SHIPPING_INFO_SET / SHIPMENT_CREATE / ORDER_OVERDUE / ORDER_STATUS_CHANGE
-* [ ] **Phase 5: 評價、檢舉與管理員**
-  * 雙向評價系統（正評/負評 + 留言）
-  * 競標與使用者檢舉
-  * 管理員後台與黑名單。BAN 歷史需獨立 `user_bans` 表（ban/unban 時間、操作者、原因）；BAN 時呼叫 `RevokeUserSessions` 撤銷所有 session
-  * 管理員關閉競標：需新增 `closed_at/closed_by` 欄位並納入 `StatusAt` 與所有搜尋 SQL
+* [x] **Phase 5: 評價、檢舉與管理員**（2026-10-22；整合測試新增 7 項；瀏覽器端對端：評價→公開頁→檢舉→後台結案通知→停權（無法登入）→關閉進行中競標（出價者收到通知、無法出價、首頁隱藏）→解除停權）
+  * 雙向評價、公開個人頁、評分摘要
+  * 競標/使用者檢舉、我的檢舉紀錄、管理員處理與通知
+  * 管理後台：檢舉、使用者（BAN/UNBAN、停權歷史）、競標（關閉）、訂單（取消未付款）、付款異常
+  * 修正：登入前結束舊 session（共用裝置安全）
 * [ ] **Phase 6: Audit Log、資安強化與部署**
   * Audit Log 完整性檢查與管理員查詢介面
   * 資安防護審查（XSS, CSRF, IDOR, MIME 深度驗證等）
@@ -198,7 +209,7 @@
 4. **額外聯絡方式**只對賣家顯示（Phase 3 起對得標買家於訂單中顯示），不公開於競標頁。
 5. 出價紀錄的出價者名稱遮罩（如 `G***o`），本人出價標示「我」。
 6. CLOSED 競標不出現在首頁與搜尋，但知道 ID 仍可開啟詳細頁（供訂單、歷史紀錄連結）。
-7. 被 BAN 的賣家既有競標暫不自動下架（待 Phase 5 管理員關閉功能）。
+7. 被 BAN 的賣家既有競標不會自動下架，由管理員視情況「關閉競標」。
 8. 「我的競標」同時提供「我賣的」與「我出價的」兩種清單。
 
 ## 5. 已確認決策（2026-10-21 使用者確認）
@@ -216,7 +227,8 @@
 ## 6. 待確認事項
 
 1. 綠界：目前使用官方公開 stage 測試商店；正式上線前需換成自己的商店代號與金鑰，並確認 ReturnURL 可被綠界連到。尚未在 stage 實際刷卡走完 callback（需公開網址），部署後應實測一次。
-2. 「競標即將開始」通知：目前沒有「關注 / 收藏」功能，無合適收件者，尚未實作。是否要加收藏功能？
+2. 「競標即將開始」通知：目前沒有「關注 / 收藏」功能，無合適收件者，尚未實作（使用者已確認先不做）。
+3. DUPLICATE 付款目前只列出待人工退款，未串接綠界退款 API。
 
 ## 7. 本機開發
 

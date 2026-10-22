@@ -50,6 +50,7 @@ WHERE id = ANY(sqlc.arg(ids)::uuid[]) AND order_id IS NULL;
 UPDATE auctions
 SET ending_soon_notified_at = sqlc.arg(now)::timestamptz
 WHERE settled_at IS NULL
+  AND closed_at IS NULL
   AND ending_soon_notified_at IS NULL
   AND bid_count > 0
   AND start_time <= sqlc.arg(now)::timestamptz

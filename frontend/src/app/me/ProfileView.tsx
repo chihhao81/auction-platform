@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { formatTaipei } from "@/lib/time";
 import { MyAuctions } from "./MyAuctions";
+import { MyReports, MyReputation } from "./MyReputation";
 import { NotificationSettings } from "./NotificationSettings";
 
 export function ProfileView() {
@@ -37,8 +38,10 @@ export function ProfileView() {
           登出
         </button>
       </section>
+      <MyReputation userId={user.id} />
       <MyAuctions />
       <NotificationSettings />
+      <MyReports />
     </div>
   );
 }

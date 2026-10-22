@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/subtle"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -98,6 +99,18 @@ func (h *Handler) callback(w http.ResponseWriter, r *http.Request) {
 	if err != nil || stateCookie.Value == "" || subtle.ConstantTimeCompare([]byte(stateCookie.Value), []byte(q.Get("state"))) != 1 {
 		h.loginError(w, r, "INVALID_STATE")
 		return
+	}
+	// A new login always ends the browser's previous session first, so a
+	// failed or rejected login (e.g. a banned account) never leaves the
+	// previous user signed in on a shared device. Done after the state check
+	// so a forged callback cannot be used to log people out.
+	if c, err := r.Cookie(SessionCookieName); err == nil && c.Value != "" {
+		if prev, err := h.svc.Authenticate(r.Context(), c.Value); err == nil && prev != nil {
+			if err := h.svc.Logout(r.Context(), c.Value, prev); err != nil {
+				slog.WarnContext(r.Context(), "end previous session", "err", err)
+			}
+		}
+		h.clearCookie(w, SessionCookieName)
 	}
 	if q.Get("error") != "" || q.Get("code") == "" {
 		h.loginError(w, r, "LINE_DENIED")

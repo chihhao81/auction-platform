@@ -9,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 
+	"auction-platform/backend/internal/admin"
 	"auction-platform/backend/internal/auction"
 	"auction-platform/backend/internal/auth"
 	"auction-platform/backend/internal/config"
@@ -16,6 +17,8 @@ import (
 	"auction-platform/backend/internal/notify"
 	"auction-platform/backend/internal/order"
 	"auction-platform/backend/internal/payment"
+	"auction-platform/backend/internal/report"
+	"auction-platform/backend/internal/review"
 	"auction-platform/backend/internal/storage"
 	"auction-platform/backend/internal/store"
 )
@@ -28,6 +31,9 @@ type Deps struct {
 	Auction *auction.Service
 	Order   *order.Service
 	Payment *payment.Service
+	Review  *review.Service
+	Report  *report.Service
+	Admin   *admin.Service
 	// Uploads serves locally stored images; nil when using remote storage.
 	Uploads *storage.Local
 	Now     func() time.Time
@@ -61,6 +67,9 @@ func NewRouter(d Deps) http.Handler {
 			auction.NewHandler(d.Auction).Routes(r)
 			order.NewHandler(d.Order).Routes(r)
 			payment.NewHandler(d.Payment).Routes(r)
+			review.NewHandler(d.Review).Routes(r)
+			report.NewHandler(d.Report).Routes(r)
+			admin.NewHandler(d.Admin, d.Review).Routes(r)
 			notify.NewHandler(d.Store, d.Config.VAPIDPublicKey, d.Now).Routes(r)
 		})
 	})

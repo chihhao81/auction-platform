@@ -85,10 +85,20 @@ type DetailDTO struct {
 	ReceivedAt    *time.Time   `json:"received_at"`
 	CompletedAt   *time.Time   `json:"completed_at"`
 	Shipment      *ShipmentDTO `json:"shipment"`
+	// MyReview / TheirReview: the viewer's review of the other party and
+	// the other party's review of the viewer (null until written).
+	MyReview    *OrderReviewDTO `json:"my_review"`
+	TheirReview *OrderReviewDTO `json:"their_review"`
 	// AutoAdvanceAt is when the scheduler will move a SHIPPED / RECEIVED
 	// order forward if the buyer does nothing.
 	AutoAdvanceAt *time.Time `json:"auto_advance_at"`
 	CreatedAt     time.Time  `json:"created_at"`
+}
+
+type OrderReviewDTO struct {
+	Rating    string    `json:"rating"`
+	Comment   string    `json:"comment"`
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // ShipmentDTO is visible only to the order's buyer and seller.
@@ -164,6 +174,18 @@ func (s *Service) Get(ctx context.Context, id, viewer uuid.UUID) (DetailDTO, err
 		d.AutoAdvanceAt = ptr(o.ShippedAt.Add(s.opts.AutoReceiveAfter).UTC())
 	case Status(o.Status) == Received && o.ReceivedAt != nil:
 		d.AutoAdvanceAt = ptr(o.ReceivedAt.Add(s.opts.AutoCompleteAfter).UTC())
+	}
+	revs, err := s.store.ListOrderReviews(ctx, o.ID)
+	if err != nil {
+		return DetailDTO{}, fmt.Errorf("list reviews: %w", err)
+	}
+	for _, r := range revs {
+		dto := &OrderReviewDTO{Rating: r.Rating, Comment: r.Comment, CreatedAt: r.CreatedAt.UTC()}
+		if r.ReviewerID == viewer {
+			d.MyReview = dto
+		} else {
+			d.TheirReview = dto
+		}
 	}
 	sh, err := s.store.GetShipment(ctx, o.ID)
 	switch {

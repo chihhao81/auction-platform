@@ -120,7 +120,7 @@ func summaryOf(a db.Auction, sellerName string, imgs []ImageDTO, now time.Time) 
 	return Summary{
 		ID: a.ID.String(), Title: a.Title, Images: imgs, CurrentPrice: a.CurrentPrice,
 		BidCount: a.BidCount, StartTime: a.StartTime.UTC(), EndTime: a.EndTime.UTC(),
-		Status: StatusAt(a.StartTime, a.EndTime, now), SellerName: sellerName,
+		Status: StatusOf(a, now), SellerName: sellerName,
 	}
 }
 
@@ -285,7 +285,7 @@ func (s *Service) Prices(ctx context.Context, ids []uuid.UUID) ([]Price, time.Ti
 	out := make([]Price, 0, len(rows))
 	for _, r := range rows {
 		st := StatusAt(r.StartTime, r.EndTime, now)
-		if st == StatusClosed {
+		if r.ClosedAt != nil || st == StatusClosed {
 			continue // CLOSED auctions disappear from the home page
 		}
 		out = append(out, Price{ID: r.ID.String(), CurrentPrice: r.CurrentPrice, BidCount: r.BidCount, EndTime: r.EndTime.UTC(), Status: st})

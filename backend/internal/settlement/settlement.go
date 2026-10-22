@@ -118,6 +118,23 @@ func (s *Service) settleOne(ctx context.Context, id uuid.UUID) (bool, error) {
 		}
 
 		winner := a.HighestBidderID.UUID
+		w, err := q.GetUserByID(ctx, winner)
+		if err != nil {
+			return fmt.Errorf("load winner: %w", err)
+		}
+		if w.Status == "BANNED" {
+			// Banned users cannot create orders: the auction ends without one.
+			if err := batch.Add(ctx, q, now, notify.Message{
+				UserID: a.SellerID, Type: notify.TypeAuctionUnsold, AuctionID: a.ID, Title: "競標結束（得標者已停權）",
+				Content: fmt.Sprintf("「%s」的最高出價者帳號已被停權，本次競標不成立訂單。", a.Title),
+			}); err != nil {
+				return err
+			}
+			return audit.Record(ctx, q, now, audit.Entry{
+				Action: audit.ActionAuctionSettle, TargetType: audit.TargetAuction, TargetID: a.ID.String(),
+				Metadata: map[string]any{"winner": winner.String(), "winner_banned": true, "amount": a.CurrentPrice},
+			})
+		}
 		if _, err := q.InsertOrderItem(ctx, db.InsertOrderItemParams{
 			AuctionID: a.ID, BuyerID: winner, SellerID: a.SellerID,
 			Amount: a.CurrentPrice, ShippingFee: a.ShippingFee, WonAt: now,

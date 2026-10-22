@@ -189,7 +189,7 @@ func (s *Service) Update(ctx context.Context, user, id uuid.UUID, in Input, keep
 		if cur.SellerID != user {
 			return ErrNotSeller
 		}
-		if StatusAt(cur.StartTime, cur.EndTime, now) != StatusUpcoming {
+		if StatusOf(cur, now) != StatusUpcoming {
 			return ErrNotEditable
 		}
 

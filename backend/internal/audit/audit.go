@@ -34,6 +34,11 @@ const (
 	ActionPaymentCreate     = "PAYMENT_CREATE"
 	ActionPaymentStatus     = "PAYMENT_STATUS_CHANGE"
 	ActionReportCreate      = "REPORT_CREATE"
+	ActionReportUpdate      = "REPORT_UPDATE"
+	ActionReviewCreate      = "REVIEW_CREATE"
+	ActionUserBan           = "USER_BAN"
+	ActionUserUnban         = "USER_UNBAN"
+	ActionAuctionClose      = "AUCTION_CLOSE"
 )
 
 // Target types recorded in audit_logs.target_type.

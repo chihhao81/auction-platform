@@ -168,6 +168,8 @@ export interface OrderDetail {
   received_at: string | null;
   completed_at: string | null;
   shipment: Shipment | null;
+  my_review: OrderReview | null;
+  their_review: OrderReview | null;
   auto_advance_at: string | null;
   created_at: string;
 }
@@ -194,3 +196,52 @@ export interface PaymentCheckout {
   action: string;
   fields: Record<string, string>;
 }
+
+export interface Reputation {
+  positive: number;
+  negative: number;
+  completed_orders: number;
+}
+
+export interface UserReview {
+  id: string;
+  rating: "POSITIVE" | "NEGATIVE";
+  comment: string;
+  reviewer_name: string;
+  from_buyer: boolean;
+  created_at: string;
+}
+
+export interface PublicProfile {
+  id: string;
+  display_name: string;
+  avatar_url: string;
+  banned: boolean;
+  created_at: string;
+  reputation: Reputation;
+  reviews: UserReview[];
+}
+
+export interface OrderReview {
+  rating: "POSITIVE" | "NEGATIVE";
+  comment: string;
+  created_at: string;
+}
+
+export type ReportStatus = "PENDING" | "REVIEWING" | "RESOLVED" | "REJECTED";
+
+export interface Report {
+  id: string;
+  target_type: "USER" | "AUCTION";
+  target_user_id: string | null;
+  target_auction_id: string | null;
+  reason: string;
+  reason_label: string;
+  description: string;
+  status: ReportStatus;
+  resolution_note: string;
+  handled_at: string | null;
+  created_at: string;
+}
+
+export type ReportReasons = Record<"USER" | "AUCTION", Record<string, string>>;

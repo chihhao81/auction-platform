@@ -64,6 +64,15 @@ func StatusAt(start, end, now time.Time) Status {
 	}
 }
 
+// StatusOf is the auction's status at now, including an admin close, which
+// makes an auction CLOSED immediately regardless of its times.
+func StatusOf(a db.Auction, now time.Time) Status {
+	if a.ClosedAt != nil {
+		return StatusClosed
+	}
+	return StatusAt(a.StartTime, a.EndTime, now)
+}
+
 // BidRange returns the inclusive range of valid next bids. Before the first
 // bid current_price equals start_price, so the same formula applies.
 func BidRange(a db.Auction) (min, max int64) {
@@ -79,7 +88,7 @@ var (
 
 // ValidateBid checks a bid against the locked auction row at instant now.
 func ValidateBid(a db.Auction, bidder uuid.UUID, amount int64, now time.Time) error {
-	switch StatusAt(a.StartTime, a.EndTime, now) {
+	switch StatusOf(a, now) {
 	case StatusUpcoming:
 		return ErrNotStarted
 	case StatusEnded, StatusClosed:

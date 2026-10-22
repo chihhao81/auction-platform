@@ -10,6 +10,7 @@ import { formatTaipei } from "@/lib/time";
 import type { OrderDetail } from "@/lib/types";
 import { OrderActions } from "./OrderActions";
 import { OrderMessages } from "./OrderMessages";
+import { OrderReview } from "./OrderReview";
 
 export function OrderDetailView() {
   const { id } = useParams<{ id: string }>();
@@ -105,6 +106,8 @@ export function OrderDetailView() {
       </section>
 
       <OrderActions key={order.status} order={order} onChanged={() => void load()} />
+
+      <OrderReview order={order} onChanged={() => void load()} />
 
       <OrderMessages orderId={order.id} disabled={order.status === "CANCELLED"} onSent={() => void load()} />
 

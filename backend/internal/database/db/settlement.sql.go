@@ -31,6 +31,7 @@ const claimEndingSoonAuctions = `-- name: ClaimEndingSoonAuctions :many
 UPDATE auctions
 SET ending_soon_notified_at = $1::timestamptz
 WHERE settled_at IS NULL
+  AND closed_at IS NULL
   AND ending_soon_notified_at IS NULL
   AND bid_count > 0
   AND start_time <= $1::timestamptz

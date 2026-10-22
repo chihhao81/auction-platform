@@ -15,6 +15,11 @@ export function NavBar() {
         <div className="flex items-center gap-3 text-sm">
           {state.status === "authenticated" && state.me.terms.accepted && (
             <>
+              {state.me.user.role === "ADMIN" && (
+                <Link href="/admin" className="text-amber-700 hover:underline">
+                  管理
+                </Link>
+              )}
               <Link href="/orders" className="hover:underline">
                 訂單
               </Link>

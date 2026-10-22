@@ -87,7 +87,7 @@ var auctionCols = []string{
 	"id", "seller_id", "title", "description", "start_price", "min_increment", "max_increment",
 	"current_price", "highest_bidder_id", "bid_count", "start_time", "end_time", "original_end_time",
 	"contact_info", "shipping_method", "shipping_fee", "created_at", "updated_at",
-	"settled_at", "ending_soon_notified_at",
+	"settled_at", "ending_soon_notified_at", "closed_at", "closed_by", "close_reason",
 }
 
 func auctionRows(a db.Auction) *pgxmock.Rows {
@@ -95,7 +95,7 @@ func auctionRows(a db.Auction) *pgxmock.Rows {
 		a.ID, a.SellerID, a.Title, a.Description, a.StartPrice, a.MinIncrement, a.MaxIncrement,
 		a.CurrentPrice, a.HighestBidderID, a.BidCount, a.StartTime, a.EndTime, a.OriginalEndTime,
 		a.ContactInfo, a.ShippingMethod, a.ShippingFee, a.CreatedAt, a.UpdatedAt,
-		a.SettledAt, a.EndingSoonNotifiedAt,
+		a.SettledAt, a.EndingSoonNotifiedAt, a.ClosedAt, a.ClosedBy, a.CloseReason,
 	)
 }
 

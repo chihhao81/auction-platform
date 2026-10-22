@@ -12,6 +12,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"auction-platform/backend/internal/admin"
 	"auction-platform/backend/internal/auction"
 	"auction-platform/backend/internal/auth"
 	"auction-platform/backend/internal/config"
@@ -20,6 +21,8 @@ import (
 	"auction-platform/backend/internal/notify"
 	"auction-platform/backend/internal/order"
 	"auction-platform/backend/internal/payment"
+	"auction-platform/backend/internal/report"
+	"auction-platform/backend/internal/review"
 	"auction-platform/backend/internal/scheduler"
 	"auction-platform/backend/internal/server"
 	"auction-platform/backend/internal/settlement"
@@ -95,6 +98,9 @@ func run() error {
 		PublicBaseURL: cfg.PublicBaseURL, AllowSimulated: cfg.ECPayAllowSimulated,
 	}, now)
 	settlementSvc := settlement.NewService(st, dispatcher, now)
+	reviewSvc := review.NewService(st, dispatcher, now)
+	reportSvc := report.NewService(st, now)
+	adminSvc := admin.NewService(st, dispatcher, now)
 
 	var schedulerDone chan struct{}
 	if cfg.SchedulerEnabled {
@@ -113,6 +119,7 @@ func run() error {
 		Addr: ":" + cfg.Port,
 		Handler: server.NewRouter(server.Deps{
 			Config: cfg, Store: st, Auth: authSvc, Line: line, Auction: auctionSvc, Order: orderSvc, Payment: paymentSvc,
+			Review: reviewSvc, Report: reportSvc, Admin: adminSvc,
 			Uploads: files, Now: now,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,

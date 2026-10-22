@@ -1,4 +1,4 @@
-# API 文件（Phase 1–4）
+# API 文件（Phase 1–5）
 
 * Base path：`/api`（瀏覽器經 Next.js rewrites 代理至 Go backend）
 * 時間：一律 UTC ISO-8601；金額：新台幣整數
@@ -213,3 +213,49 @@ Body `{"carrier":"黑貓宅急便","tracking_number":"…"}` → 204；買家未
 
 ### `POST /api/payments/ecpay/notify` — 綠界 server-to-server（不需登入、免 CSRF）
 `application/x-www-form-urlencoded`，必須帶正確 `CheckMacValue`。回應純文字：成功或已處理 `1|OK`；簽章錯誤 400 `0|CheckMacValue Error`。付款金額必須與訂單金額相同，重複通知不會重複處理。
+
+## 評價與個人頁（Phase 5）
+
+### `POST /api/orders/{id}/reviews` — 會員，訂單買賣雙方，`COMPLETED`
+Body `{"rating":"POSITIVE"|"NEGATIVE","comment":"500 字內，選填"}` → 201。同一訂單同一人只能評價一次（409 `ALREADY_REVIEWED`）。
+訂單詳細 `GET /api/orders/{id}` 另回傳 `my_review`、`their_review`（`{"rating","comment","created_at"}` 或 null）。
+
+### `GET /api/users/{id}` — 公開
+```json
+{"user":{"id":"…","display_name":"…","avatar_url":"…","banned":false,"created_at":"…",
+         "reputation":{"positive":12,"negative":1,"completed_orders":13},
+         "reviews":[{"id":"…","rating":"POSITIVE","comment":"…","reviewer_name":"…","from_buyer":true,"created_at":"…"}]}}
+```
+
+### `GET /api/users/{id}/reviews?page=1` — 公開
+`{"items":[…],"has_more":false}`
+
+## 檢舉（Phase 5）
+
+### `GET /api/reports/reasons` — 公開
+`{"AUCTION":{"PROHIBITED_ITEM":"…","MISLEADING":"…","FRAUD":"…","OTHER":"…"},"USER":{"FRAUD":"…","NON_PAYMENT":"…","NO_SHIPMENT":"…","HARASSMENT":"…","SHILL":"…","OTHER":"…"}}`
+
+### `POST /api/reports` — 會員
+Body `{"target_type":"USER"|"AUCTION","target_id":"uuid","reason":"FRAUD","description":"2000 字內"}` → 201 `{"report":{…}}`。
+不可檢舉自己或自己的競標（400）；同對象已有處理中的檢舉回 409 `REPORT_ALREADY_OPEN`。每人約每分鐘 6 次。
+
+### `GET /api/me/reports` — 會員
+`{"items":[{"id","target_type","target_user_id","target_auction_id","reason","reason_label","description","status","resolution_note","handled_at","created_at"}]}`
+
+## 管理員（Phase 5）
+
+全部需要 `ADMIN` 角色（`ADMIN_LINE_USER_IDS`）。所有寫入操作必須帶 `reason`（500 字內），並寫入 Audit Log。
+
+| Method | Path | 說明 |
+|---|---|---|
+| GET | `/api/admin/users?q=&status=&page=` | 使用者列表（含目前停權原因） |
+| GET | `/api/admin/users/{id}` | `{"user","bans":[停權歷史],"reputation"}` |
+| POST | `/api/admin/users/{id}/ban` | `{"reason"}`，同時撤銷所有 session；不可停權管理員/自己 |
+| POST | `/api/admin/users/{id}/unban` | `{"reason"}` |
+| GET | `/api/admin/auctions?q=&page=` | 所有競標（含 CLOSED、是否已結標） |
+| POST | `/api/admin/auctions/{id}/close` | `{"reason"}`，僅限尚未結標；通知賣家與出價者 |
+| GET | `/api/admin/orders?status=&page=` | 所有訂單 |
+| POST | `/api/admin/orders/{id}/cancel` | `{"reason"}`，僅限未付款或 DISPUTED |
+| GET | `/api/admin/reports?status=&page=` | 檢舉列表（含系統檢舉，reporter_name 為「（系統）」） |
+| POST | `/api/admin/reports/{id}` | `{"status":"REVIEWING"|"RESOLVED"|"REJECTED","note"}`；結案通知檢舉人 |
+| GET | `/api/admin/payments/attention` | 重複付款 / 金額不符，需人工退款或核對 |

@@ -263,3 +263,59 @@ func TestSanitizers(t *testing.T) {
 		t.Errorf("long name not truncated: %d", len([]rune(got)))
 	}
 }
+
+func TestCallbackEndsPreviousSessionEvenWhenLoginIsRejected(t *testing.T) {
+	svc, mock := newMockService(t, nil)
+	prevUser := uuid.New()
+	// The browser is still signed in as prevUser.
+	mock.ExpectQuery("FROM sessions").WithArgs(terms.CurrentVersion, hashToken("old-token"), fixedNow).
+		WillReturnRows(pgxmock.NewRows(sessionCols).AddRow(prevUser, "L1", "prev", "", RoleAdmin, StatusActive, fixedNow, fixedNow, true))
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE sessions SET revoked_at").WithArgs(fixedNow, hashToken("old-token")).WillReturnResult(pgxmock.NewResult("UPDATE", 1))
+	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(pgxmock.AnyArg(), "LOGOUT", "USER", prevUser.String(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), fixedNow).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectCommit()
+	// The new login is for a banned account.
+	banned := uuid.New()
+	mock.ExpectBegin()
+	mock.ExpectQuery("INSERT INTO users").WithArgs("mock-carol", "Mock carol", "", RoleUser).
+		WillReturnRows(pgxmock.NewRows(upsertCols).AddRow(banned, "mock-carol", "Mock carol", "", RoleUser, StatusBanned, fixedNow, fixedNow, false))
+	mock.ExpectExec("INSERT INTO audit_logs").WithArgs(pgxmock.AnyArg(), "LOGIN_REJECTED_BANNED", "USER", banned.String(), pgxmock.AnyArg(), pgxmock.AnyArg(), pgxmock.AnyArg(), fixedNow).
+		WillReturnResult(pgxmock.NewResult("INSERT", 1))
+	mock.ExpectCommit()
+
+	h := NewHandler(svc, MockLineClient{}, "http://front", false, true)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/line/callback?code=mock:carol&state=s1", nil)
+	req.AddCookie(&http.Cookie{Name: stateCookieName, Value: "s1"})
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "old-token"})
+	rec := httptest.NewRecorder()
+	h.callback(rec, req)
+
+	if loc := rec.Header().Get("Location"); loc != "http://front/login?error=USER_BANNED" {
+		t.Fatalf("Location = %q", loc)
+	}
+	cleared := false
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName && c.MaxAge < 0 {
+			cleared = true
+		}
+	}
+	if !cleared {
+		t.Fatal("the previous session cookie must be cleared")
+	}
+}
+
+func TestForgedCallbackDoesNotEndSession(t *testing.T) {
+	svc, _ := newMockService(t, nil) // no DB expectations: nothing may be revoked
+	h := NewHandler(svc, MockLineClient{}, "http://front", false, true)
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/line/callback?code=mock:x&state=forged", nil)
+	req.AddCookie(&http.Cookie{Name: stateCookieName, Value: "real"})
+	req.AddCookie(&http.Cookie{Name: SessionCookieName, Value: "victim-token"})
+	rec := httptest.NewRecorder()
+	h.callback(rec, req)
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == SessionCookieName {
+			t.Fatal("a forged callback must not touch the session")
+		}
+	}
+}

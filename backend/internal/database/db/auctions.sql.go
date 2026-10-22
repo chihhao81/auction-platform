@@ -17,7 +17,7 @@ UPDATE auctions
 SET current_price = $2, highest_bidder_id = $3, bid_count = bid_count + 1,
     end_time = $4, updated_at = $5
 WHERE id = $1
-RETURNING id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at
+RETURNING id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at, closed_at, closed_by, close_reason
 `
 
 type ApplyBidParams struct {
@@ -58,13 +58,16 @@ func (q *Queries) ApplyBid(ctx context.Context, arg ApplyBidParams) (Auction, er
 		&i.UpdatedAt,
 		&i.SettledAt,
 		&i.EndingSoonNotifiedAt,
+		&i.ClosedAt,
+		&i.ClosedBy,
+		&i.CloseReason,
 	)
 	return i, err
 }
 
 const countOpenAuctionsBySeller = `-- name: CountOpenAuctionsBySeller :one
 SELECT COUNT(*) FROM auctions
-WHERE seller_id = $1 AND end_time > $2::timestamptz
+WHERE seller_id = $1 AND end_time > $2::timestamptz AND closed_at IS NULL
 `
 
 type CountOpenAuctionsBySellerParams struct {
@@ -90,7 +93,7 @@ INSERT INTO auctions (
     $4, $7, $8, $8,
     $9, $10, $11, $12, $12
 )
-RETURNING id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at
+RETURNING id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at, closed_at, closed_by, close_reason
 `
 
 type CreateAuctionParams struct {
@@ -145,6 +148,9 @@ func (q *Queries) CreateAuction(ctx context.Context, arg CreateAuctionParams) (A
 		&i.UpdatedAt,
 		&i.SettledAt,
 		&i.EndingSoonNotifiedAt,
+		&i.ClosedAt,
+		&i.ClosedBy,
+		&i.CloseReason,
 	)
 	return i, err
 }
@@ -159,7 +165,7 @@ func (q *Queries) DeleteAuctionImages(ctx context.Context, auctionID uuid.UUID) 
 }
 
 const getAuction = `-- name: GetAuction :one
-SELECT id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at FROM auctions WHERE id = $1
+SELECT id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at, closed_at, closed_by, close_reason FROM auctions WHERE id = $1
 `
 
 func (q *Queries) GetAuction(ctx context.Context, id uuid.UUID) (Auction, error) {
@@ -186,12 +192,15 @@ func (q *Queries) GetAuction(ctx context.Context, id uuid.UUID) (Auction, error)
 		&i.UpdatedAt,
 		&i.SettledAt,
 		&i.EndingSoonNotifiedAt,
+		&i.ClosedAt,
+		&i.ClosedBy,
+		&i.CloseReason,
 	)
 	return i, err
 }
 
 const getAuctionForUpdate = `-- name: GetAuctionForUpdate :one
-SELECT id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at FROM auctions WHERE id = $1 FOR UPDATE
+SELECT id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at, closed_at, closed_by, close_reason FROM auctions WHERE id = $1 FOR UPDATE
 `
 
 func (q *Queries) GetAuctionForUpdate(ctx context.Context, id uuid.UUID) (Auction, error) {
@@ -218,22 +227,26 @@ func (q *Queries) GetAuctionForUpdate(ctx context.Context, id uuid.UUID) (Auctio
 		&i.UpdatedAt,
 		&i.SettledAt,
 		&i.EndingSoonNotifiedAt,
+		&i.ClosedAt,
+		&i.ClosedBy,
+		&i.CloseReason,
 	)
 	return i, err
 }
 
 const getAuctionPrices = `-- name: GetAuctionPrices :many
-SELECT id, current_price, bid_count, start_time, end_time
+SELECT id, current_price, bid_count, start_time, end_time, closed_at
 FROM auctions
 WHERE id = ANY($1::uuid[])
 `
 
 type GetAuctionPricesRow struct {
-	ID           uuid.UUID `json:"id"`
-	CurrentPrice int64     `json:"current_price"`
-	BidCount     int32     `json:"bid_count"`
-	StartTime    time.Time `json:"start_time"`
-	EndTime      time.Time `json:"end_time"`
+	ID           uuid.UUID  `json:"id"`
+	CurrentPrice int64      `json:"current_price"`
+	BidCount     int32      `json:"bid_count"`
+	StartTime    time.Time  `json:"start_time"`
+	EndTime      time.Time  `json:"end_time"`
+	ClosedAt     *time.Time `json:"closed_at"`
 }
 
 func (q *Queries) GetAuctionPrices(ctx context.Context, ids []uuid.UUID) ([]GetAuctionPricesRow, error) {
@@ -251,6 +264,7 @@ func (q *Queries) GetAuctionPrices(ctx context.Context, ids []uuid.UUID) ([]GetA
 			&i.BidCount,
 			&i.StartTime,
 			&i.EndTime,
+			&i.ClosedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -263,7 +277,7 @@ func (q *Queries) GetAuctionPrices(ctx context.Context, ids []uuid.UUID) ([]GetA
 }
 
 const getAuctionWithSeller = `-- name: GetAuctionWithSeller :one
-SELECT a.id, a.seller_id, a.title, a.description, a.start_price, a.min_increment, a.max_increment, a.current_price, a.highest_bidder_id, a.bid_count, a.start_time, a.end_time, a.original_end_time, a.contact_info, a.shipping_method, a.shipping_fee, a.created_at, a.updated_at, a.settled_at, a.ending_soon_notified_at, u.display_name AS seller_name, u.avatar_url AS seller_avatar
+SELECT a.id, a.seller_id, a.title, a.description, a.start_price, a.min_increment, a.max_increment, a.current_price, a.highest_bidder_id, a.bid_count, a.start_time, a.end_time, a.original_end_time, a.contact_info, a.shipping_method, a.shipping_fee, a.created_at, a.updated_at, a.settled_at, a.ending_soon_notified_at, a.closed_at, a.closed_by, a.close_reason, u.display_name AS seller_name, u.avatar_url AS seller_avatar
 FROM auctions a
 JOIN users u ON u.id = a.seller_id
 WHERE a.id = $1
@@ -299,6 +313,9 @@ func (q *Queries) GetAuctionWithSeller(ctx context.Context, id uuid.UUID) (GetAu
 		&i.Auction.UpdatedAt,
 		&i.Auction.SettledAt,
 		&i.Auction.EndingSoonNotifiedAt,
+		&i.Auction.ClosedAt,
+		&i.Auction.ClosedBy,
+		&i.Auction.CloseReason,
 		&i.SellerName,
 		&i.SellerAvatar,
 	)
@@ -363,14 +380,14 @@ func (q *Queries) InsertBid(ctx context.Context, arg InsertBidParams) (Bid, erro
 }
 
 const listAuctionsByBidder = `-- name: ListAuctionsByBidder :many
-SELECT a.id, a.seller_id, a.title, a.description, a.start_price, a.min_increment, a.max_increment, a.current_price, a.highest_bidder_id, a.bid_count, a.start_time, a.end_time, a.original_end_time, a.contact_info, a.shipping_method, a.shipping_fee, a.created_at, a.updated_at, a.settled_at, a.ending_soon_notified_at, u.display_name AS seller_name
+SELECT a.id, a.seller_id, a.title, a.description, a.start_price, a.min_increment, a.max_increment, a.current_price, a.highest_bidder_id, a.bid_count, a.start_time, a.end_time, a.original_end_time, a.contact_info, a.shipping_method, a.shipping_fee, a.created_at, a.updated_at, a.settled_at, a.ending_soon_notified_at, a.closed_at, a.closed_by, a.close_reason, u.display_name AS seller_name
 FROM auctions a
 JOIN users u ON u.id = a.seller_id
 WHERE EXISTS (SELECT 1 FROM bids b WHERE b.auction_id = a.id AND b.bidder_id = $1)
   AND ($2::text = ''
-       OR ($2::text = 'UPCOMING' AND a.start_time > $3::timestamptz)
-       OR ($2::text = 'ACTIVE' AND a.start_time <= $3::timestamptz AND a.end_time > $3::timestamptz)
-       OR ($2::text = 'ENDED' AND a.end_time <= $3::timestamptz))
+       OR ($2::text = 'UPCOMING' AND a.closed_at IS NULL AND a.start_time > $3::timestamptz)
+       OR ($2::text = 'ACTIVE' AND a.closed_at IS NULL AND a.start_time <= $3::timestamptz AND a.end_time > $3::timestamptz)
+       OR ($2::text = 'ENDED' AND (a.end_time <= $3::timestamptz OR a.closed_at IS NOT NULL)))
 ORDER BY a.end_time DESC, a.id
 LIMIT $5 OFFSET $4
 `
@@ -424,6 +441,9 @@ func (q *Queries) ListAuctionsByBidder(ctx context.Context, arg ListAuctionsByBi
 			&i.Auction.UpdatedAt,
 			&i.Auction.SettledAt,
 			&i.Auction.EndingSoonNotifiedAt,
+			&i.Auction.ClosedAt,
+			&i.Auction.ClosedBy,
+			&i.Auction.CloseReason,
 			&i.SellerName,
 		); err != nil {
 			return nil, err
@@ -437,14 +457,14 @@ func (q *Queries) ListAuctionsByBidder(ctx context.Context, arg ListAuctionsByBi
 }
 
 const listAuctionsBySeller = `-- name: ListAuctionsBySeller :many
-SELECT a.id, a.seller_id, a.title, a.description, a.start_price, a.min_increment, a.max_increment, a.current_price, a.highest_bidder_id, a.bid_count, a.start_time, a.end_time, a.original_end_time, a.contact_info, a.shipping_method, a.shipping_fee, a.created_at, a.updated_at, a.settled_at, a.ending_soon_notified_at, u.display_name AS seller_name
+SELECT a.id, a.seller_id, a.title, a.description, a.start_price, a.min_increment, a.max_increment, a.current_price, a.highest_bidder_id, a.bid_count, a.start_time, a.end_time, a.original_end_time, a.contact_info, a.shipping_method, a.shipping_fee, a.created_at, a.updated_at, a.settled_at, a.ending_soon_notified_at, a.closed_at, a.closed_by, a.close_reason, u.display_name AS seller_name
 FROM auctions a
 JOIN users u ON u.id = a.seller_id
 WHERE a.seller_id = $1
   AND ($2::text = ''
-       OR ($2::text = 'UPCOMING' AND a.start_time > $3::timestamptz)
-       OR ($2::text = 'ACTIVE' AND a.start_time <= $3::timestamptz AND a.end_time > $3::timestamptz)
-       OR ($2::text = 'ENDED' AND a.end_time <= $3::timestamptz))
+       OR ($2::text = 'UPCOMING' AND a.closed_at IS NULL AND a.start_time > $3::timestamptz)
+       OR ($2::text = 'ACTIVE' AND a.closed_at IS NULL AND a.start_time <= $3::timestamptz AND a.end_time > $3::timestamptz)
+       OR ($2::text = 'ENDED' AND (a.end_time <= $3::timestamptz OR a.closed_at IS NOT NULL)))
 ORDER BY a.end_time DESC, a.id
 LIMIT $5 OFFSET $4
 `
@@ -499,6 +519,9 @@ func (q *Queries) ListAuctionsBySeller(ctx context.Context, arg ListAuctionsBySe
 			&i.Auction.UpdatedAt,
 			&i.Auction.SettledAt,
 			&i.Auction.EndingSoonNotifiedAt,
+			&i.Auction.ClosedAt,
+			&i.Auction.ClosedBy,
+			&i.Auction.CloseReason,
 			&i.SellerName,
 		); err != nil {
 			return nil, err
@@ -607,17 +630,18 @@ func (q *Queries) LockUserStatus(ctx context.Context, id uuid.UUID) (string, err
 }
 
 const searchAuctions = `-- name: SearchAuctions :many
-SELECT a.id, a.seller_id, a.title, a.description, a.start_price, a.min_increment, a.max_increment, a.current_price, a.highest_bidder_id, a.bid_count, a.start_time, a.end_time, a.original_end_time, a.contact_info, a.shipping_method, a.shipping_fee, a.created_at, a.updated_at, a.settled_at, a.ending_soon_notified_at, u.display_name AS seller_name
+SELECT a.id, a.seller_id, a.title, a.description, a.start_price, a.min_increment, a.max_increment, a.current_price, a.highest_bidder_id, a.bid_count, a.start_time, a.end_time, a.original_end_time, a.contact_info, a.shipping_method, a.shipping_fee, a.created_at, a.updated_at, a.settled_at, a.ending_soon_notified_at, a.closed_at, a.closed_by, a.close_reason, u.display_name AS seller_name
 FROM auctions a
 JOIN users u ON u.id = a.seller_id
 WHERE a.end_time > $1::timestamptz - INTERVAL '24 hours'
+  AND a.closed_at IS NULL
   AND ($2::text = ''
        OR a.title ILIKE $2::text
        OR a.description ILIKE $2::text)
   AND ($3::text = ''
-       OR ($3::text = 'UPCOMING' AND a.start_time > $1::timestamptz)
-       OR ($3::text = 'ACTIVE' AND a.start_time <= $1::timestamptz AND a.end_time > $1::timestamptz)
-       OR ($3::text = 'ENDED' AND a.end_time <= $1::timestamptz))
+       OR ($3::text = 'UPCOMING' AND a.closed_at IS NULL AND a.start_time > $1::timestamptz)
+       OR ($3::text = 'ACTIVE' AND a.closed_at IS NULL AND a.start_time <= $1::timestamptz AND a.end_time > $1::timestamptz)
+       OR ($3::text = 'ENDED' AND (a.end_time <= $1::timestamptz OR a.closed_at IS NOT NULL)))
 ORDER BY
     CASE
         WHEN a.start_time <= $1::timestamptz AND a.end_time > $1::timestamptz THEN 0
@@ -682,6 +706,9 @@ func (q *Queries) SearchAuctions(ctx context.Context, arg SearchAuctionsParams) 
 			&i.Auction.UpdatedAt,
 			&i.Auction.SettledAt,
 			&i.Auction.EndingSoonNotifiedAt,
+			&i.Auction.ClosedAt,
+			&i.Auction.ClosedBy,
+			&i.Auction.CloseReason,
 			&i.SellerName,
 		); err != nil {
 			return nil, err
@@ -701,7 +728,7 @@ SET title = $2, description = $3, start_price = $4, current_price = $4,
     original_end_time = $8, contact_info = $9, shipping_method = $10,
     shipping_fee = $11, updated_at = $12
 WHERE id = $1
-RETURNING id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at
+RETURNING id, seller_id, title, description, start_price, min_increment, max_increment, current_price, highest_bidder_id, bid_count, start_time, end_time, original_end_time, contact_info, shipping_method, shipping_fee, created_at, updated_at, settled_at, ending_soon_notified_at, closed_at, closed_by, close_reason
 `
 
 type UpdateAuctionContentParams struct {
@@ -758,6 +785,9 @@ func (q *Queries) UpdateAuctionContent(ctx context.Context, arg UpdateAuctionCon
 		&i.UpdatedAt,
 		&i.SettledAt,
 		&i.EndingSoonNotifiedAt,
+		&i.ClosedAt,
+		&i.ClosedBy,
+		&i.CloseReason,
 	)
 	return i, err
 }

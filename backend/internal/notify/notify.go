@@ -31,6 +31,9 @@ const (
 	TypePaymentDone     Type = "PAYMENT_COMPLETED"
 	TypeOrderShipped    Type = "ORDER_SHIPPED"
 	TypeMessageReceived Type = "MESSAGE_RECEIVED"
+	TypeReviewReceived  Type = "REVIEW_RECEIVED"
+	TypeReportResult    Type = "REPORT_RESOLVED"
+	TypeAuctionClosed   Type = "AUCTION_CLOSED"
 )
 
 // TypeInfo describes a type for the preference settings UI.
@@ -53,6 +56,9 @@ var Types = []TypeInfo{
 	{TypeOrderShipped, "賣家已出貨"},
 	{TypeOrderStatus, "訂單狀態變更"},
 	{TypeMessageReceived, "收到訂單訊息"},
+	{TypeReviewReceived, "收到評價"},
+	{TypeReportResult, "檢舉處理結果"},
+	{TypeAuctionClosed, "競標被管理員關閉"},
 }
 
 // ValidType reports whether t is a known notification type.

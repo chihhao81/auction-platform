@@ -56,6 +56,9 @@ func TestValidateBid(t *testing.T) {
 	ended := activeAuction()
 	ended.EndTime = t0
 
+	adminClosed := activeAuction()
+	adminClosed.ClosedAt = &t0
+
 	closed := activeAuction()
 	closed.StartTime, closed.EndTime = t0.Add(-72*time.Hour), t0.Add(-25*time.Hour)
 
@@ -78,6 +81,7 @@ func TestValidateBid(t *testing.T) {
 		{"not started", upcoming, alice, 1050, "AUCTION_NOT_STARTED"},
 		{"ended at exactly end_time", ended, alice, 1050, "AUCTION_ENDED"},
 		{"closed", closed, alice, 1050, "AUCTION_ENDED"},
+		{"closed by admin while running", adminClosed, alice, 1050, "AUCTION_ENDED"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

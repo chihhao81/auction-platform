@@ -6,7 +6,7 @@ SELECT status FROM users WHERE id = $1 FOR UPDATE;
 -- name: CountOpenAuctionsBySeller :one
 -- Open = UPCOMING or ACTIVE, i.e. not yet ended.
 SELECT COUNT(*) FROM auctions
-WHERE seller_id = $1 AND end_time > sqlc.arg(now)::timestamptz;
+WHERE seller_id = $1 AND end_time > sqlc.arg(now)::timestamptz AND closed_at IS NULL;
 
 -- name: CreateAuction :one
 INSERT INTO auctions (
@@ -71,13 +71,14 @@ SELECT sqlc.embed(a), u.display_name AS seller_name
 FROM auctions a
 JOIN users u ON u.id = a.seller_id
 WHERE a.end_time > sqlc.arg(now)::timestamptz - INTERVAL '24 hours'
+  AND a.closed_at IS NULL
   AND (sqlc.arg(pattern)::text = ''
        OR a.title ILIKE sqlc.arg(pattern)::text
        OR a.description ILIKE sqlc.arg(pattern)::text)
   AND (sqlc.arg(status)::text = ''
-       OR (sqlc.arg(status)::text = 'UPCOMING' AND a.start_time > sqlc.arg(now)::timestamptz)
-       OR (sqlc.arg(status)::text = 'ACTIVE' AND a.start_time <= sqlc.arg(now)::timestamptz AND a.end_time > sqlc.arg(now)::timestamptz)
-       OR (sqlc.arg(status)::text = 'ENDED' AND a.end_time <= sqlc.arg(now)::timestamptz))
+       OR (sqlc.arg(status)::text = 'UPCOMING' AND a.closed_at IS NULL AND a.start_time > sqlc.arg(now)::timestamptz)
+       OR (sqlc.arg(status)::text = 'ACTIVE' AND a.closed_at IS NULL AND a.start_time <= sqlc.arg(now)::timestamptz AND a.end_time > sqlc.arg(now)::timestamptz)
+       OR (sqlc.arg(status)::text = 'ENDED' AND (a.end_time <= sqlc.arg(now)::timestamptz OR a.closed_at IS NOT NULL)))
 ORDER BY
     CASE
         WHEN a.start_time <= sqlc.arg(now)::timestamptz AND a.end_time > sqlc.arg(now)::timestamptz THEN 0
@@ -96,9 +97,9 @@ FROM auctions a
 JOIN users u ON u.id = a.seller_id
 WHERE a.seller_id = sqlc.arg(user_id)
   AND (sqlc.arg(status)::text = ''
-       OR (sqlc.arg(status)::text = 'UPCOMING' AND a.start_time > sqlc.arg(now)::timestamptz)
-       OR (sqlc.arg(status)::text = 'ACTIVE' AND a.start_time <= sqlc.arg(now)::timestamptz AND a.end_time > sqlc.arg(now)::timestamptz)
-       OR (sqlc.arg(status)::text = 'ENDED' AND a.end_time <= sqlc.arg(now)::timestamptz))
+       OR (sqlc.arg(status)::text = 'UPCOMING' AND a.closed_at IS NULL AND a.start_time > sqlc.arg(now)::timestamptz)
+       OR (sqlc.arg(status)::text = 'ACTIVE' AND a.closed_at IS NULL AND a.start_time <= sqlc.arg(now)::timestamptz AND a.end_time > sqlc.arg(now)::timestamptz)
+       OR (sqlc.arg(status)::text = 'ENDED' AND (a.end_time <= sqlc.arg(now)::timestamptz OR a.closed_at IS NOT NULL)))
 ORDER BY a.end_time DESC, a.id
 LIMIT sqlc.arg(lim) OFFSET sqlc.arg(off);
 
@@ -108,14 +109,14 @@ FROM auctions a
 JOIN users u ON u.id = a.seller_id
 WHERE EXISTS (SELECT 1 FROM bids b WHERE b.auction_id = a.id AND b.bidder_id = sqlc.arg(user_id))
   AND (sqlc.arg(status)::text = ''
-       OR (sqlc.arg(status)::text = 'UPCOMING' AND a.start_time > sqlc.arg(now)::timestamptz)
-       OR (sqlc.arg(status)::text = 'ACTIVE' AND a.start_time <= sqlc.arg(now)::timestamptz AND a.end_time > sqlc.arg(now)::timestamptz)
-       OR (sqlc.arg(status)::text = 'ENDED' AND a.end_time <= sqlc.arg(now)::timestamptz))
+       OR (sqlc.arg(status)::text = 'UPCOMING' AND a.closed_at IS NULL AND a.start_time > sqlc.arg(now)::timestamptz)
+       OR (sqlc.arg(status)::text = 'ACTIVE' AND a.closed_at IS NULL AND a.start_time <= sqlc.arg(now)::timestamptz AND a.end_time > sqlc.arg(now)::timestamptz)
+       OR (sqlc.arg(status)::text = 'ENDED' AND (a.end_time <= sqlc.arg(now)::timestamptz OR a.closed_at IS NOT NULL)))
 ORDER BY a.end_time DESC, a.id
 LIMIT sqlc.arg(lim) OFFSET sqlc.arg(off);
 
 -- name: GetAuctionPrices :many
-SELECT id, current_price, bid_count, start_time, end_time
+SELECT id, current_price, bid_count, start_time, end_time, closed_at
 FROM auctions
 WHERE id = ANY(sqlc.arg(ids)::uuid[]);
 

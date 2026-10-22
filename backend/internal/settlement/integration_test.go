@@ -293,3 +293,24 @@ func TestIntegrationEndingSoonNotifiesOnce(t *testing.T) {
 		t.Fatal("seller is not a bidder")
 	}
 }
+
+func TestIntegrationBannedWinnerGetsNoOrder(t *testing.T) {
+	pool, svc, c := setup(t)
+	ctx := context.Background()
+	seller := testdb.CreateUser(t, pool, "seller")
+	bob := testdb.CreateUser(t, pool, "bob")
+	insertAuction(t, pool, auctionSpec{seller: seller, end: c.now().Add(-time.Minute), bids: []bidSpec{{bob, 500}}})
+	if _, err := pool.Exec(ctx, "UPDATE users SET status='BANNED' WHERE id=$1", bob); err != nil {
+		t.Fatal(err)
+	}
+	if n, err := svc.SettleEnded(ctx); err != nil || n != 1 {
+		t.Fatalf("settled %d err %v", n, err)
+	}
+	_, _ = svc.FinalizeOrders(ctx)
+	if count(t, pool, "SELECT COUNT(*) FROM order_items") != 0 || count(t, pool, "SELECT COUNT(*) FROM orders") != 0 {
+		t.Fatal("a banned winner must not get an order")
+	}
+	if notificationTypes(t, pool, seller)["AUCTION_UNSOLD"] != 1 {
+		t.Fatal("seller should be told the auction ended without an order")
+	}
+}

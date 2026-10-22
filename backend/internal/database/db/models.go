@@ -31,6 +31,9 @@ type Auction struct {
 	UpdatedAt            time.Time     `json:"updated_at"`
 	SettledAt            *time.Time    `json:"settled_at"`
 	EndingSoonNotifiedAt *time.Time    `json:"ending_soon_notified_at"`
+	ClosedAt             *time.Time    `json:"closed_at"`
+	ClosedBy             uuid.NullUUID `json:"closed_by"`
+	CloseReason          string        `json:"close_reason"`
 }
 
 type AuctionImage struct {
@@ -168,6 +171,16 @@ type Report struct {
 	UpdatedAt       time.Time     `json:"updated_at"`
 }
 
+type Review struct {
+	ID         uuid.UUID `json:"id"`
+	OrderID    uuid.UUID `json:"order_id"`
+	ReviewerID uuid.UUID `json:"reviewer_id"`
+	RevieweeID uuid.UUID `json:"reviewee_id"`
+	Rating     string    `json:"rating"`
+	Comment    string    `json:"comment"`
+	CreatedAt  time.Time `json:"created_at"`
+}
+
 type Session struct {
 	ID        uuid.UUID  `json:"id"`
 	TokenHash []byte     `json:"token_hash"`
@@ -202,6 +215,17 @@ type User struct {
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+type UserBan struct {
+	ID          uuid.UUID     `json:"id"`
+	UserID      uuid.UUID     `json:"user_id"`
+	Reason      string        `json:"reason"`
+	BannedBy    uuid.UUID     `json:"banned_by"`
+	BannedAt    time.Time     `json:"banned_at"`
+	UnbannedBy  uuid.NullUUID `json:"unbanned_by"`
+	UnbannedAt  *time.Time    `json:"unbanned_at"`
+	UnbanReason string        `json:"unban_reason"`
 }
 
 type UserTerm struct {
