@@ -73,7 +73,7 @@ sudo apt update && sudo apt install -y caddy
 把本專案 `deploy/Caddyfile` 複製成 `/etc/caddy/Caddyfile`，將 `api.example.com` 改成你的網域：
 
 ```bash
-sudo mkdir -p /var/log/caddy && sudo chown caddy:caddy /var/log/caddy
+sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile
 sudo systemctl reload caddy
 ```
 

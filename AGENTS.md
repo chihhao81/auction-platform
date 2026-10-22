@@ -175,6 +175,17 @@
 * **CI**（`.github/workflows/ci.yml`）：push 到 main / PR 時在 Ubuntu 上跑 gofmt、vet、測試（有 `TEST_DATABASE_URL` secret 才跑整合測試）、govulncheck、amd64/arm64 build（產物上傳為 artifact）與前端測試/型別/lint/build。
   * 2026-10-22：使用者電腦的 Windows Defender 以行為偵測 `Behavior:Win32/DefenseEvasion.A!ml` 封鎖官方 go1.27.3 的 `go.exe`（Go 在暫存目錄產生並執行測試/編譯檔的行為常被誤判）。未替使用者加入例外；正式 binary 改由 CI 產生。本機要再跑 Go 需使用者自行在「保護歷程記錄」允許。
 
+### ADR-22: 實際部署狀態（2026-10-22）
+* **VM**：Oracle `VM.Standard.E2.1.Micro`（Ubuntu 24.04、x86_64、954MB RAM、已有 2GB swap），SSH `ubuntu@161.33.186.104`（金鑰 `~/.ssh/oracle/ssh-key-2026-09-21.key`）。
+* **同機的其他服務**：使用者既有的 `spring-demo`（Docker Compose，Spring + PostgreSQL，佔用 8080）。**不要動它**；本專案後端使用 **8081**（`PORT=8081`），iptables 只開放 22/80/443。
+* **網址**：無自有網域，API 使用 `https://161-33-186-104.sslip.io`（Caddy 自動 HTTPS；VM 的 IP 若變更需同步修改 Caddyfile、Vercel 的 `BACKEND_URL`）。前端使用 Vercel（使用者決定）。
+* **後端**：`/opt/critter-bid/critter-bid`（由 **GitHub Actions** 產生的 amd64 binary）、systemd `critter-bid`、設定 `/etc/critter-bid/backend.env`（640 root:critterbid）、圖片存 `/var/lib/critter-bid/uploads`（暫不使用 R2）。資料庫為 Neon 同專案的 `critterbid_prod`（與開發用的 `neondb` 分開）。
+* **登入**：目前只有測試登入（`TEST_LOGIN_PASSWORD` 在 VM 上產生，查詢：`sudo grep ^TEST_LOGIN_PASSWORD= /etc/critter-bid/backend.env`）；`ADMIN_LINE_USER_IDS=test-admin`。LINE 尚未設定。
+* **綠界**：使用官方 stage 測試商店（不會產生真實交易）。
+* **VAPID 金鑰**在 VM 上以 openssl 產生，只存在 VM。
+* **Caddy 日誌**寫入 systemd journal（`journalctl -u caddy`）；寫檔到 `/var/log/caddy` 在此 VM 上會權限錯誤，已改用 journal。
+* **GitHub**：`main` 已替換為本版本；原本另一份實作（Phase 1A＋2）備份於 `archive/remote-main-1008`。
+
 ### ADR-13: Next.js 16 注意事項
 * 本專案使用 Next.js 16.4（`cacheComponents` + `partialPrefetching` 開啟）。與舊版差異大，開發前請閱讀 `frontend/node_modules/next/dist/docs/`（`frontend/AGENTS.md` 亦有提醒）。
 * 使用 `useSearchParams()` / `usePathname()` / `useParams()` 的 Client Component 必須包在 `<Suspense>` 內，否則 build 失敗（`RequireMember` 已內建 Suspense）。

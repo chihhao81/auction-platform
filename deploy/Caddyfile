@@ -13,10 +13,6 @@ api.example.com {
 	# unchanged; it rewrites X-Forwarded-For with the connecting peer (Vercel).
 	reverse_proxy 127.0.0.1:8080
 
-	log {
-		output file /var/log/caddy/critter-bid.log {
-			roll_size 10MiB
-			roll_keep 5
-		}
-	}
+	# Access logs go to the systemd journal: journalctl -u caddy
+	log
 }
