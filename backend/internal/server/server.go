@@ -42,9 +42,15 @@ type Deps struct {
 func NewRouter(d Deps) http.Handler {
 	r := chi.NewRouter()
 	r.Use(middleware.RequestID)
+	r.Use(httpx.ClientMeta(d.Config.ClientIPHeader))
+	r.Use(httpx.AccessLog)
 	r.Use(middleware.Recoverer)
 	r.Use(httpx.SecurityHeaders)
-	r.Use(httpx.ClientMeta(d.Config.ClientIPHeader))
+	if d.Config.IsProduction() {
+		r.Use(httpx.HSTS)
+	}
+	// Bounds every request; the context deadline also cancels DB queries.
+	r.Use(middleware.Timeout(60 * time.Second))
 	r.Use(httpx.RateLimitByIP(httpx.NewRateLimiter(10, 40)))
 	// The ECPay callback is server-to-server and authenticated by its
 	// CheckMacValue instead of the CSRF token.

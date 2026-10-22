@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/google/uuid"
 
+	"auction-platform/backend/internal/apperr"
 	"auction-platform/backend/internal/auction"
 	"auction-platform/backend/internal/auth"
 	"auction-platform/backend/internal/database/db"
@@ -42,6 +44,7 @@ func (h *Handler) Routes(r chi.Router) {
 		r.Get("/reports", httpx.Handle(h.reports))
 		r.Post("/reports/{id}", httpx.Handle(h.updateReport))
 		r.Get("/payments/attention", httpx.Handle(h.payments))
+		r.Get("/audit-logs", httpx.Handle(h.auditLogs))
 	})
 }
 
@@ -303,6 +306,49 @@ func (h *Handler) payments(w http.ResponseWriter, r *http.Request) error {
 	items := make([]PaymentDTO, len(rows))
 	for i, p := range rows {
 		items[i] = PaymentDTO{p.ID.String(), p.OrderID.String(), p.OrderStatus, p.MerchantTradeNo, p.ProviderTradeNo, p.Amount, p.Status, p.UpdatedAt.UTC()}
+	}
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
+	return nil
+}
+
+type AuditDTO struct {
+	ID         string          `json:"id"`
+	ActorID    *string         `json:"actor_id"`
+	ActorName  string          `json:"actor_name"`
+	Action     string          `json:"action"`
+	TargetType string          `json:"target_type"`
+	TargetID   string          `json:"target_id"`
+	Metadata   json.RawMessage `json:"metadata"`
+	IP         string          `json:"ip"`
+	UserAgent  string          `json:"user_agent"`
+	CreatedAt  time.Time       `json:"created_at"`
+}
+
+// auditLogs lets admins search the append-only audit log.
+func (h *Handler) auditLogs(w http.ResponseWriter, r *http.Request) error {
+	lim, off := page(r)
+	q := r.URL.Query()
+	params := db.AdminListAuditLogsParams{
+		Action: q.Get("action"), TargetType: q.Get("target_type"), TargetID: q.Get("target_id"), Lim: lim, Off: off,
+	}
+	if a := q.Get("actor"); a != "" {
+		id, err := uuid.Parse(a)
+		if err != nil {
+			return apperr.Invalid("INVALID_ACTOR", "操作者 ID 格式錯誤")
+		}
+		params.ActorUserID = uuid.NullUUID{UUID: id, Valid: true}
+	}
+	rows, err := h.svc.store.AdminListAuditLogs(r.Context(), params)
+	if err != nil {
+		return err
+	}
+	items := make([]AuditDTO, len(rows))
+	for i, a := range rows {
+		items[i] = AuditDTO{
+			ID: a.ID.String(), ActorID: idPtr(a.ActorUserID), ActorName: a.ActorName, Action: a.Action,
+			TargetType: a.TargetType, TargetID: a.TargetID, Metadata: json.RawMessage(a.Metadata),
+			IP: a.Ip, UserAgent: a.UserAgent, CreatedAt: a.CreatedAt.UTC(),
+		}
 	}
 	httpx.WriteJSON(w, http.StatusOK, map[string]any{"items": items})
 	return nil

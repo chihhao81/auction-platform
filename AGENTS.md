@@ -152,6 +152,18 @@
 * 所有管理員寫入操作都必須填原因，與變更同交易寫 Audit（USER_BAN / USER_UNBAN / AUCTION_CLOSE / ORDER_STATUS_CHANGE / REPORT_UPDATE）。查詢操作不寫 Audit。
 * **登入時先結束舊 session**：OAuth callback 在 state 驗證通過後，會先撤銷並清除瀏覽器上既有的 session，避免「被拒絕的登入（如已停權帳號）」讓前一位使用者在共用裝置上維持登入。
 
+### ADR-20: 資安強化、R2 與部署（Phase 6）
+* **路由權限守門測試**：`internal/server/server_test.go` 用 `chi.Walk` 列舉所有路由，除了 `publicRoutes` 白名單外，未登入一律必須回 401。**新增公開 API 時必須同步更新白名單**，否則測試失敗。
+* **Access log**：結構化 JSON，只記 path、不記 query string（LINE callback 帶有 OAuth code）。**請求逾時**：每個請求 60 秒（同時取消 DB 查詢）。**HSTS**：只在 production 開啟。
+* **前端 CSP**（`next.config.ts`）：頁面是靜態預先產生的，依 Next.js 文件採「不使用 nonce」的設定；img-src 允許 LINE 頭像網域與 `NEXT_PUBLIC_IMAGE_ORIGIN`（R2）；form-action 只允許自己與綠界；另有 Permissions-Policy。
+* **R2**：`storage.S3`（minio-go）、region `auto`、單次 PUT（`DisableContentSha256`，不使用 aws-chunked）、`Cache-Control: immutable`；圖片由 R2 公開網域直接提供，不經過 VM。`STORAGE_BACKEND=local|r2`，設定不完整時拒絕啟動。
+* **依賴漏洞**：已升級 golang-jwt、x/crypto。**Go 標準函式庫需 1.27.3 以上**（1.27.0～1.27.2 有 net/http、crypto 漏洞）。`scripts/build-backend.sh` 會檢查版本，不符時拒絕 build。
+  * 2026-10-22：曾在 go.mod 指定 `toolchain go1.27.3` 讓 Go 自動下載，但使用者電腦的 Windows Defender 將下載的工具鏈 `go.exe` 判定為病毒並封鎖（很可能是誤判，但未繞過防毒）。因此已移除 toolchain 指定，改由 build script 檢查版本，並建議從 go.dev 下載官方安裝程式更新。
+* **設定檔一致性測試**：`.env.example` 與 `deploy/backend.env.production.example` 中的每個設定名稱都必須是 config 實際讀取的（防止打錯字而默默使用預設值）。
+* **部署**：`deploy/`（systemd 安全強化設定、`GOMEMLIMIT=300MiB`／`MemoryMax=450M`、Caddy 自動 HTTPS、正式環境設定範本、部署手冊）；`scripts/build-backend.sh amd64|arm64` 產生靜態 binary。
+* `audit_logs` 加入 `seq` 排序（migration 000007）；管理後台新增「稽核紀錄」查詢（依動作、對象、操作者篩選）。
+* 定時 job 另外會清除過期或撤銷超過 7 天的 session。
+
 ### ADR-13: Next.js 16 注意事項
 * 本專案使用 Next.js 16.4（`cacheComponents` + `partialPrefetching` 開啟）。與舊版差異大，開發前請閱讀 `frontend/node_modules/next/dist/docs/`（`frontend/AGENTS.md` 亦有提醒）。
 * 使用 `useSearchParams()` / `usePathname()` / `useParams()` 的 Client Component 必須包在 `<Suspense>` 內，否則 build 失敗（`RequireMember` 已內建 Suspense）。
@@ -193,11 +205,13 @@
   * 競標/使用者檢舉、我的檢舉紀錄、管理員處理與通知
   * 管理後台：檢舉、使用者（BAN/UNBAN、停權歷史）、競標（關閉）、訂單（取消未付款）、付款異常
   * 修正：登入前結束舊 session（共用裝置安全）
-* [ ] **Phase 6: Audit Log、資安強化與部署**
-  * Audit Log 完整性檢查與管理員查詢介面
-  * 資安防護審查（XSS, CSRF, IDOR, MIME 深度驗證等）
-  * 前後端完整單元測試驗證
-  * R2 storage 實作、Oracle Cloud Free Tier 部署設定與文件
+* [x] **Phase 6: Audit Log、資安強化與部署**（2026-10-22；後端 18 個 package／164 個測試，其中 28 個為 Neon 整合測試；前端 42 個測試；以正式模式 build＋CSP 實際操作驗證）
+  * Audit Log 涵蓋確認、管理員查詢介面
+  * 資安審查（見 docs/ARCHITECTURE.md §4）：路由權限守門測試、access log 不記 query、請求逾時、HSTS、前端 CSP、govulncheck 與依賴升級
+  * R2 storage、部署設定（systemd、Caddy、build script、正式環境設定範本）與部署手冊
+  * 交付文件：README.md（測試結果、已知限制）、docs/ARCHITECTURE.md（架構、Schema、資安）、docs/API.md、deploy/README.md
+
+**全部 Phase 已完成。** 後續若繼續開發，請先閱讀 README.md 的「已知限制」。
 
 ---
 

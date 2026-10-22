@@ -1,6 +1,7 @@
 package httpx
 
 import (
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -125,5 +126,22 @@ func TestClientIP(t *testing.T) {
 	req.Header.Set("X-Forwarded-For", "not-an-ip")
 	if got := clientIP(req, "X-Forwarded-For"); got != "10.0.0.1" {
 		t.Errorf("invalid header should fall back, got %q", got)
+	}
+}
+
+func TestAccessLogOmitsQueryString(t *testing.T) {
+	var buf strings.Builder
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	defer slog.SetDefault(prev)
+
+	h := AccessLog(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(http.StatusTeapot) }))
+	h.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/api/auth/line/callback?code=SECRET123&state=x", nil))
+	out := buf.String()
+	if strings.Contains(out, "SECRET123") {
+		t.Fatalf("query string leaked into access log: %s", out)
+	}
+	if !strings.Contains(out, "path=/api/auth/line/callback") || !strings.Contains(out, "status=418") {
+		t.Fatalf("unexpected log line: %s", out)
 	}
 }

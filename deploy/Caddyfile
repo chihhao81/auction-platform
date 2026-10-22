@@ -1,0 +1,22 @@
+# /etc/caddy/Caddyfile — HTTPS reverse proxy for the backend API.
+# Caddy obtains and renews the TLS certificate automatically.
+# Replace api.example.com with your API hostname (DNS A record -> VM public IP).
+api.example.com {
+	encode zstd gzip
+
+	# Up to 4 images x 8 MB plus form data.
+	request_body {
+		max_size 40MB
+	}
+
+	# Caddy passes request headers such as X-Real-IP (set by Vercel) through
+	# unchanged; it rewrites X-Forwarded-For with the connecting peer (Vercel).
+	reverse_proxy 127.0.0.1:8080
+
+	log {
+		output file /var/log/caddy/critter-bid.log {
+			roll_size 10MiB
+			roll_keep 5
+		}
+	}
+}

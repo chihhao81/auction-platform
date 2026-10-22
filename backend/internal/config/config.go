@@ -34,8 +34,17 @@ type Config struct {
 	// the client IP (e.g. X-Forwarded-For). Empty means use the TCP peer.
 	ClientIPHeader string
 
+	// StorageBackend is "local" (disk, development) or "r2" (Cloudflare R2 /
+	// any S3-compatible store, production).
+	StorageBackend string
 	// UploadDir is where the local storage backend keeps images.
 	UploadDir string
+	// R2 settings; the secret key stays in the backend env only.
+	R2Endpoint        string
+	R2AccessKeyID     string
+	R2SecretAccessKey string
+	R2Bucket          string
+	R2PublicBaseURL   string
 
 	// The scheduler settles ended auctions, merges orders and sends timed
 	// notifications. Disable it on extra instances sharing a database if
@@ -94,6 +103,11 @@ func load(getenv func(string) string) (*Config, error) {
 		LineRedirectURI:   get("LINE_REDIRECT_URI", ""),
 		ClientIPHeader:    get("CLIENT_IP_HEADER", ""),
 		UploadDir:         get("UPLOAD_DIR", "./uploads"),
+		StorageBackend:    get("STORAGE_BACKEND", "local"),
+		R2AccessKeyID:     get("R2_ACCESS_KEY_ID", ""),
+		R2SecretAccessKey: get("R2_SECRET_ACCESS_KEY", ""),
+		R2Bucket:          get("R2_BUCKET", ""),
+		R2PublicBaseURL:   get("R2_PUBLIC_BASE_URL", ""),
 		VAPIDPublicKey:    get("VAPID_PUBLIC_KEY", ""),
 		VAPIDPrivateKey:   get("VAPID_PRIVATE_KEY", ""),
 		VAPIDSubject:      get("VAPID_SUBJECT", ""),
@@ -116,6 +130,10 @@ func load(getenv func(string) string) (*Config, error) {
 	c.MockLineAuth = parseBool("MOCK_LINE_AUTH", false)
 	c.CookieSecure = parseBool("COOKIE_SECURE", c.IsProduction())
 	c.SchedulerEnabled = parseBool("SCHEDULER_ENABLED", true)
+	c.R2Endpoint = get("R2_ENDPOINT", "")
+	if c.R2Endpoint == "" && get("R2_ACCOUNT_ID", "") != "" {
+		c.R2Endpoint = get("R2_ACCOUNT_ID", "") + ".r2.cloudflarestorage.com"
+	}
 	c.ECPayAllowSimulated = parseBool("ECPAY_ALLOW_SIMULATED", !c.IsProduction())
 	c.PublicBaseURL = strings.TrimRight(get("PUBLIC_BASE_URL", c.FrontendURL), "/")
 
@@ -171,6 +189,15 @@ func load(getenv func(string) string) (*Config, error) {
 	}
 	if c.ECPayEnabled() && (c.ECPayHashKey == "" || c.ECPayHashIV == "") {
 		errs = append(errs, errors.New("ECPAY_HASH_KEY and ECPAY_HASH_IV are required when ECPAY_MERCHANT_ID is set"))
+	}
+	switch c.StorageBackend {
+	case "local":
+	case "r2":
+		if c.R2Endpoint == "" || c.R2AccessKeyID == "" || c.R2SecretAccessKey == "" || c.R2Bucket == "" || c.R2PublicBaseURL == "" {
+			errs = append(errs, errors.New("STORAGE_BACKEND=r2 requires R2_ACCOUNT_ID (or R2_ENDPOINT), R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET and R2_PUBLIC_BASE_URL"))
+		}
+	default:
+		errs = append(errs, errors.New("STORAGE_BACKEND must be local or r2"))
 	}
 	if c.IsProduction() && c.ECPayAllowSimulated {
 		errs = append(errs, errors.New("ECPAY_ALLOW_SIMULATED must be false in production"))

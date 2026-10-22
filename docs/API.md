@@ -1,4 +1,4 @@
-# API 文件（Phase 1–5）
+# API 文件
 
 * Base path：`/api`（瀏覽器經 Next.js rewrites 代理至 Go backend）
 * 時間：一律 UTC ISO-8601；金額：新台幣整數
@@ -259,3 +259,4 @@ Body `{"target_type":"USER"|"AUCTION","target_id":"uuid","reason":"FRAUD","descr
 | GET | `/api/admin/reports?status=&page=` | 檢舉列表（含系統檢舉，reporter_name 為「（系統）」） |
 | POST | `/api/admin/reports/{id}` | `{"status":"REVIEWING"|"RESOLVED"|"REJECTED","note"}`；結案通知檢舉人 |
 | GET | `/api/admin/payments/attention` | 重複付款 / 金額不符，需人工退款或核對 |
+| GET | `/api/admin/audit-logs?action=&target_type=&target_id=&actor=&page=` | 稽核紀錄（新到舊；含 metadata、IP、user agent） |

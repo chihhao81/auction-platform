@@ -23,3 +23,9 @@ WHERE token_hash = sqlc.arg(token_hash) AND revoked_at IS NULL;
 -- name: RevokeUserSessions :exec
 UPDATE sessions SET revoked_at = sqlc.arg(now)::timestamptz
 WHERE user_id = sqlc.arg(user_id) AND revoked_at IS NULL;
+
+-- name: DeleteStaleSessions :execrows
+-- Housekeeping: sessions that expired or were revoked more than a week ago.
+DELETE FROM sessions
+WHERE expires_at < sqlc.arg(cutoff)::timestamptz
+   OR revoked_at < sqlc.arg(cutoff)::timestamptz;

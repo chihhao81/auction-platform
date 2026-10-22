@@ -381,6 +381,10 @@ func (s *Service) RunJobs(ctx context.Context) error {
 	if err := s.autoAdvance(ctx, Received, Completed, s.opts.AutoCompleteAfter); err != nil {
 		errs = append(errs, fmt.Errorf("auto complete: %w", err))
 	}
+	// Housekeeping that rides on the same job: drop long-dead sessions.
+	if _, err := s.store.DeleteStaleSessions(ctx, s.now().UTC().Add(-7*24*time.Hour)); err != nil {
+		errs = append(errs, fmt.Errorf("delete stale sessions: %w", err))
+	}
 	if _, err := s.store.PurgeShipmentRecipients(ctx, db.PurgeShipmentRecipientsParams{
 		Now: s.now().UTC(), Cutoff: s.now().UTC().Add(-s.opts.ShippingInfoRetention),
 	}); err != nil {

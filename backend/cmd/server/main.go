@@ -70,7 +70,23 @@ func run() error {
 	}
 	now := func() time.Time { return time.Now().UTC() }
 	authSvc := auth.NewService(st, line, cfg.AdminLineUserIDs, cfg.SessionTTL, now)
-	files := &storage.Local{Dir: cfg.UploadDir, BaseURL: "/uploads"}
+	var files storage.Storage
+	var localFiles *storage.Local
+	if cfg.StorageBackend == "r2" {
+		r2, err := storage.NewS3(storage.S3Config{
+			Endpoint: cfg.R2Endpoint, AccessKeyID: cfg.R2AccessKeyID, SecretAccessKey: cfg.R2SecretAccessKey,
+			Bucket: cfg.R2Bucket, PublicBaseURL: cfg.R2PublicBaseURL,
+		})
+		if err != nil {
+			return err
+		}
+		files = r2
+		slog.Info("image storage: R2", "bucket", cfg.R2Bucket, "public_base_url", cfg.R2PublicBaseURL)
+	} else {
+		localFiles = &storage.Local{Dir: cfg.UploadDir, BaseURL: "/uploads"}
+		files = localFiles
+		slog.Info("image storage: local disk", "dir", cfg.UploadDir)
+	}
 
 	var dispatcher notify.Dispatcher = notify.Noop{}
 	var pusher *notify.Pusher
@@ -120,7 +136,7 @@ func run() error {
 		Handler: server.NewRouter(server.Deps{
 			Config: cfg, Store: st, Auth: authSvc, Line: line, Auction: auctionSvc, Order: orderSvc, Payment: paymentSvc,
 			Review: reviewSvc, Report: reportSvc, Admin: adminSvc,
-			Uploads: files, Now: now,
+			Uploads: localFiles, Now: now,
 		}),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       2 * time.Minute, // image uploads from mobile networks

@@ -1,0 +1,45 @@
+# /etc/systemd/system/critter-bid.service
+[Unit]
+Description=Critter Bid backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=critterbid
+Group=critterbid
+EnvironmentFile=/etc/critter-bid/backend.env
+WorkingDirectory=/var/lib/critter-bid
+ExecStart=/opt/critter-bid/critter-bid
+Restart=on-failure
+RestartSec=5
+# SIGTERM -> graceful shutdown (finishes requests, scheduler tick, pushes).
+TimeoutStopSec=20
+
+# Memory: keep the Go heap small on a 1 GB VM; hard cap the whole process.
+Environment=GOMEMLIMIT=300MiB
+MemoryMax=450M
+
+# Hardening: the service can only write its own data directory.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+CapabilityBoundingSet=
+ReadWritePaths=/var/lib/critter-bid
+
+[Install]
+WantedBy=multi-user.target

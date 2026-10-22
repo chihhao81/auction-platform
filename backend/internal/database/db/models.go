@@ -56,6 +56,7 @@ type AuditLog struct {
 	Ip          string        `json:"ip"`
 	UserAgent   string        `json:"user_agent"`
 	CreatedAt   time.Time     `json:"created_at"`
+	Seq         int64         `json:"seq"`
 }
 
 type Bid struct {

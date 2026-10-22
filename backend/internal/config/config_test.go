@@ -1,6 +1,7 @@
 package config
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -53,5 +54,54 @@ func TestProductionDefaultsToSecureCookies(t *testing.T) {
 	}
 	if !c.CookieSecure {
 		t.Fatal("production must default to secure cookies")
+	}
+}
+
+func TestR2StorageConfig(t *testing.T) {
+	base := map[string]string{"DATABASE_URL": "postgres://x", "MOCK_LINE_AUTH": "true", "STORAGE_BACKEND": "r2"}
+	if _, err := load(env(base)); err == nil || !strings.Contains(err.Error(), "R2_") {
+		t.Fatalf("incomplete r2 config must fail, got %v", err)
+	}
+	base["R2_ACCOUNT_ID"] = "acc"
+	base["R2_ACCESS_KEY_ID"] = "ak"
+	base["R2_SECRET_ACCESS_KEY"] = "sk"
+	base["R2_BUCKET"] = "b"
+	base["R2_PUBLIC_BASE_URL"] = "https://img.example.com"
+	c, err := load(env(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.R2Endpoint != "acc.r2.cloudflarestorage.com" {
+		t.Fatalf("endpoint %q", c.R2Endpoint)
+	}
+	if _, err := load(env(map[string]string{"DATABASE_URL": "postgres://x", "MOCK_LINE_AUTH": "true", "STORAGE_BACKEND": "s4"})); err == nil {
+		t.Fatal("unknown backend must fail")
+	}
+}
+
+// Every key in the env templates must be one the config actually reads, so a
+// typo or a renamed setting cannot silently fall back to a default.
+func TestEnvTemplatesOnlyUseKnownKeys(t *testing.T) {
+	read := map[string]bool{}
+	_, _ = load(func(k string) string { read[k] = true; return "" })
+	// Keys read only in some branches, plus runtime settings handled outside config.
+	for _, k := range []string{"R2_ENDPOINT", "R2_ACCOUNT_ID", "TEST_DATABASE_URL", "GOMEMLIMIT"} {
+		read[k] = true
+	}
+	for _, path := range []string{"../../.env.example", "../../../deploy/backend.env.production.example"} {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "#"))
+			key, _, ok := strings.Cut(line, "=")
+			if !ok || key == "" || strings.ContainsAny(key, " ./:") || strings.ToUpper(key) != key {
+				continue
+			}
+			if !read[key] {
+				t.Errorf("%s: unknown setting %s", path, key)
+			}
+		}
 	}
 }

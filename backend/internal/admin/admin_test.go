@@ -94,6 +94,10 @@ func TestIntegrationBanRevokesSessionsAndKeepsHistory(t *testing.T) {
 	if e.count(t, "SELECT COUNT(*) FROM audit_logs WHERE action IN ('USER_BAN','USER_UNBAN') AND actor_user_id=$1", e.admin) != 3 {
 		t.Fatal("ban/unban must be audited with the admin as actor")
 	}
+	logs, err := e.st.AdminListAuditLogs(ctx, db.AdminListAuditLogsParams{TargetID: user.String(), Lim: 10})
+	if err != nil || len(logs) != 3 || logs[0].Action != "USER_BAN" || logs[1].Action != "USER_UNBAN" || logs[0].ActorName != "admin" {
+		t.Fatalf("audit search (newest first) %+v err %v", logs, err)
+	}
 }
 
 func insertAuction(t *testing.T, e env, seller uuid.UUID, start, end time.Time) uuid.UUID {

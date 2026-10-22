@@ -12,6 +12,80 @@ import (
 	"github.com/google/uuid"
 )
 
+const adminListAuditLogs = `-- name: AdminListAuditLogs :many
+SELECT a.id, a.actor_user_id, a.action, a.target_type, a.target_id, a.metadata, a.ip, a.user_agent, a.created_at,
+       COALESCE(u.display_name, '') AS actor_name
+FROM audit_logs a
+LEFT JOIN users u ON u.id = a.actor_user_id
+WHERE ($1::text = '' OR a.action = $1::text)
+  AND ($2::text = '' OR a.target_type = $2::text)
+  AND ($3::text = '' OR a.target_id = $3::text)
+  AND ($4::uuid IS NULL OR a.actor_user_id = $4::uuid)
+ORDER BY a.seq DESC
+LIMIT $6 OFFSET $5
+`
+
+type AdminListAuditLogsParams struct {
+	Action      string        `json:"action"`
+	TargetType  string        `json:"target_type"`
+	TargetID    string        `json:"target_id"`
+	ActorUserID uuid.NullUUID `json:"actor_user_id"`
+	Off         int32         `json:"off"`
+	Lim         int32         `json:"lim"`
+}
+
+type AdminListAuditLogsRow struct {
+	ID          uuid.UUID     `json:"id"`
+	ActorUserID uuid.NullUUID `json:"actor_user_id"`
+	Action      string        `json:"action"`
+	TargetType  string        `json:"target_type"`
+	TargetID    string        `json:"target_id"`
+	Metadata    []byte        `json:"metadata"`
+	Ip          string        `json:"ip"`
+	UserAgent   string        `json:"user_agent"`
+	CreatedAt   time.Time     `json:"created_at"`
+	ActorName   string        `json:"actor_name"`
+}
+
+// Filters are optional (” / NULL = any).
+func (q *Queries) AdminListAuditLogs(ctx context.Context, arg AdminListAuditLogsParams) ([]AdminListAuditLogsRow, error) {
+	rows, err := q.db.Query(ctx, adminListAuditLogs,
+		arg.Action,
+		arg.TargetType,
+		arg.TargetID,
+		arg.ActorUserID,
+		arg.Off,
+		arg.Lim,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []AdminListAuditLogsRow{}
+	for rows.Next() {
+		var i AdminListAuditLogsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ActorUserID,
+			&i.Action,
+			&i.TargetType,
+			&i.TargetID,
+			&i.Metadata,
+			&i.Ip,
+			&i.UserAgent,
+			&i.CreatedAt,
+			&i.ActorName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const insertAuditLog = `-- name: InsertAuditLog :exec
 INSERT INTO audit_logs (actor_user_id, action, target_type, target_id, metadata, ip, user_agent, created_at)
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8)

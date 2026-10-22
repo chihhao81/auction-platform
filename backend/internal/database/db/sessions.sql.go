@@ -38,6 +38,21 @@ func (q *Queries) CreateSession(ctx context.Context, arg CreateSessionParams) er
 	return err
 }
 
+const deleteStaleSessions = `-- name: DeleteStaleSessions :execrows
+DELETE FROM sessions
+WHERE expires_at < $1::timestamptz
+   OR revoked_at < $1::timestamptz
+`
+
+// Housekeeping: sessions that expired or were revoked more than a week ago.
+func (q *Queries) DeleteStaleSessions(ctx context.Context, cutoff time.Time) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteStaleSessions, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const getActiveSessionUser = `-- name: GetActiveSessionUser :one
 SELECT u.id, u.line_user_id, u.display_name, u.avatar_url, u.role, u.status, u.created_at, u.updated_at,
        EXISTS (

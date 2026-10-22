@@ -88,6 +88,7 @@ const TABS = [
   { key: "auctions", label: "競標" },
   { key: "orders", label: "訂單" },
   { key: "payments", label: "付款異常" },
+  { key: "audit", label: "稽核紀錄" },
 ] as const;
 type Tab = (typeof TABS)[number]["key"];
 
@@ -361,6 +362,58 @@ function PaymentsTab() {
   );
 }
 
+interface AuditEntry {
+  id: string;
+  actor_id: string | null;
+  actor_name: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  metadata: Record<string, unknown>;
+  ip: string;
+  created_at: string;
+}
+
+function AuditTab() {
+  const [filter, setFilter] = useState({ action: "", target_id: "" });
+  const [applied, setApplied] = useState(filter);
+  const qs = new URLSearchParams(applied).toString();
+  const { items } = useList<AuditEntry>(`/api/admin/audit-logs?${qs}`);
+  return (
+    <div className="space-y-3">
+      <form
+        className="flex flex-wrap gap-2"
+        onSubmit={(e: FormEvent) => {
+          e.preventDefault();
+          setApplied({ action: filter.action.trim(), target_id: filter.target_id.trim() });
+        }}
+      >
+        <input value={filter.action} onChange={(e) => setFilter({ ...filter, action: e.target.value })}
+          placeholder="動作（如 BID_PLACE、USER_BAN）" className="rounded border px-3 py-1.5" aria-label="動作" />
+        <input value={filter.target_id} onChange={(e) => setFilter({ ...filter, target_id: e.target.value })}
+          placeholder="對象 ID" className="min-w-0 flex-1 rounded border px-3 py-1.5" aria-label="對象 ID" />
+        <button className="rounded bg-gray-700 px-3 text-white">查詢</button>
+      </form>
+      <p className="text-xs text-gray-500">稽核紀錄只能新增，任何人（含管理員）都無法修改或刪除。</p>
+      <Loading items={items} />
+      {items && items.length > 0 && (
+        <Table head={["時間", "操作者", "動作", "對象", "內容", "IP"]}>
+          {items.map((a) => (
+            <tr key={a.id} className="align-top">
+              <td className="whitespace-nowrap px-3 py-2">{formatTaipei(a.created_at)}</td>
+              <td className="px-3 py-2">{a.actor_name || "（系統）"}</td>
+              <td className="px-3 py-2 font-mono text-xs">{a.action}</td>
+              <td className="px-3 py-2 font-mono text-xs">{a.target_type}<br />{a.target_id.slice(0, 8)}</td>
+              <td className="max-w-xs break-all px-3 py-2 font-mono text-xs">{JSON.stringify(a.metadata)}</td>
+              <td className="px-3 py-2 text-xs">{a.ip}</td>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </div>
+  );
+}
+
 export function AdminConsole() {
   const { state } = useAuth();
   const [tab, setTab] = useState<Tab>("reports");
@@ -389,6 +442,7 @@ export function AdminConsole() {
       {tab === "auctions" && <AuctionsTab />}
       {tab === "orders" && <OrdersTab />}
       {tab === "payments" && <PaymentsTab />}
+      {tab === "audit" && <AuditTab />}
     </div>
   );
 }
