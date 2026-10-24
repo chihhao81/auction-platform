@@ -150,6 +150,8 @@ curl https://api.example.com/api/health # {"status":"ok"}
 
 ## 9. 更新版本
 
+> 目前線上環境（161.33.186.104、port 8081、sslip.io）實際使用的是「GitHub Actions 產生 binary → scp → install」的流程，並保留上一版以便回滾，詳見根目錄 `AGENTS.md` §8。以下是可在本機 build 時的通用做法。
+
 ```bash
 scripts/build-backend.sh amd64
 scp dist/critter-bid-linux-amd64 ubuntu@api.example.com:/tmp/critter-bid

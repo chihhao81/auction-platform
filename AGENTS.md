@@ -4,6 +4,41 @@
 
 ---
 
+## 0. 接手指南（新 Agent／開發者請先讀）
+
+**目前狀態（2026-10-24）**：Phase 1~6 全部完成，已部署上線（見 ADR-22），正在由使用者做實機驗收。目前沒有進行中的功能開發。下一步工作請看 §6「待確認事項」與 §10「後續工作清單」。
+
+**文件地圖**
+
+| 想知道 | 看哪裡 |
+|---|---|
+| 為什麼這樣設計、不可違反的規則 | 本文件 §1、§2（ADR）、§4、§5 |
+| 模組職責、商業流程、Schema、資安措施 | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| 所有 API、錯誤格式 | [docs/API.md](docs/API.md) |
+| 測試結果、已知限制 | [README.md](README.md) |
+| 從零部署 | [deploy/README.md](deploy/README.md) |
+| **線上環境的實際狀態與日常維運** | 本文件 ADR-22、§8 |
+| 常見修改要同步改哪些地方 | 本文件 §9 |
+| Next.js 16 的差異 | `frontend/AGENTS.md`、`frontend/node_modules/next/dist/docs/` |
+
+**Agent 必須遵守的規則**
+
+1. **溝通語言**：使用者以繁體中文溝通，回覆與文件請用繁體中文；程式碼註解維持英文（與既有程式一致）。
+2. **機密資料**：LINE secret、綠界金鑰、R2 金鑰、VAPID 私鑰、資料庫連線字串、`TEST_LOGIN_PASSWORD` 只存在 backend env（本機 `backend/.env`、VM `/etc/critter-bid/backend.env`），**絕不 commit、絕不貼進對話或文件**。不要請使用者把密碼貼到對話裡。
+3. **正式網站不要用密碼登入**：Agent 不可在正式網址輸入測試登入密碼；需要登入的端對端測試請在本機（localhost、Mock 登入）進行，正式環境的登入操作由使用者自己做。
+4. **VM 上的 `spring-demo`（Docker，8080 port）是使用者的其他專案，不要動它**，包括 `docker` 指令、iptables 規則、Caddy 以外的服務。
+5. **不可修改使用者電腦的防毒或系統安全設定**（例如替 Windows Defender 加例外），即使使用者要求也一樣。本機 Go 被 Defender 擋時，改用 CI（見 ADR-21、§8）。
+6. **破壞性操作要先確認**：force push、刪除資料表／資料、改寫 git 歷史、刪除使用者檔案前都要先問；刪檔移到資源回收筒，不要永久刪除。
+7. **每完成一個階段性工作**：跑測試（或讓 CI 跑）、更新本文件（決策寫成 ADR 或補進對應 ADR，進度寫進 §3／§10）、相關文件（API.md、ARCHITECTURE.md、README 已知限制）一併更新，再 commit。
+
+**本機開發環境的限制**
+
+* 使用者電腦（Windows 10）的 Windows Defender 會以行為偵測封鎖 `go.exe`（`go test`／`go build` 會在暫存目錄產生並執行檔案）。**本機通常無法執行 Go**；修改後端後請 push 讓 GitHub Actions 跑 gofmt／vet／test／govulncheck／build，再用 `gh run watch` 看結果。
+* 前端（Node 24）可以在本機正常執行 `npm test`、`npm run typecheck`、`npm run lint`、`npm run build`。
+* Shell 可用 PowerShell 與 Git Bash。`gh` 已登入（含 workflow scope），可以 push、查看 CI。
+
+---
+
 ## 1. 專案基本定位
 
 * **目的**：供個人使用的活體商品競標平台 Toy Version（如守宮、鼠婦等）。
@@ -268,6 +303,10 @@
 1. 綠界：目前使用官方公開 stage 測試商店；正式上線前需換成自己的商店代號與金鑰，並確認 ReturnURL 可被綠界連到。尚未在 stage 實際刷卡走完 callback（需公開網址），部署後應實測一次。
 2. 「競標即將開始」通知：目前沒有「關注 / 收藏」功能，無合適收件者，尚未實作（使用者已確認先不做）。
 3. DUPLICATE 付款目前只列出待人工退款，未串接綠界退款 API。
+4. **賣家撥款（2026-10-23 提出，尚未決定）**：目前只串接一組綠界商店，買家付的錢全部進入「平台經營者」的綠界帳戶，系統**沒有任何撥款給賣家的功能**（沒有賣家收款帳戶、撥款紀錄或後台撥款流程）。已向使用者說明三個方向，等使用者選擇：
+   * A. 平台經營者是唯一賣家：維持現狀。
+   * B. 平台代收、人工轉給賣家：要做「撥款管理」（賣家收款帳戶、已完成待撥款清單、後台標記已撥款＋Audit）。在台灣可能涉及《電子支付機構管理條例》的代收轉付規範，大量或長期使用前應先確認法規。
+   * C. 綠界平台商／特約會員模式（AIO 有 `PlatformID`、`PlatformChargeFee` 參數）：錢直接撥給各賣家，但需要先跟綠界簽約、每位賣家各自申請。細節尚未查證，需要先問綠界業務。
 
 ## 7. 本機開發
 
@@ -286,4 +325,91 @@ npm run dev        # http://localhost:3000，/api 代理至 :8080
 npm test && npm run typecheck && npm run lint && npm run build
 ```
 
+本機 Mock 登入：backend `.env` 設 `MOCK_LINE_AUTH=true`，前端登入頁即可用任意名稱登入（`mock-<name>`）；`ADMIN_LINE_USER_IDS=mock-admin` 可當管理員。本機 Go 被 Defender 擋時無法啟動後端，見 §0。
+
 API 文件：[docs/API.md](docs/API.md)
+
+---
+
+## 8. 線上環境維運手冊
+
+環境概況見 ADR-22。以下指令的 SSH 金鑰為 `~/.ssh/oracle/ssh-key-2026-09-21.key`，主機 `ubuntu@161.33.186.104`。
+
+### 8.1 更新後端（實際使用的流程）
+
+本機無法 build Go，正式 binary 一律使用 CI 產物：
+
+```bash
+git push                                   # 觸發 .github/workflows/ci.yml
+gh run watch                               # 等 backend job 全部通過
+gh run download <run-id> -n critter-bid-linux -D dist/ci
+scp -i ~/.ssh/oracle/ssh-key-2026-09-21.key dist/ci/critter-bid-linux-amd64 ubuntu@161.33.186.104:/tmp/critter-bid
+ssh -i ~/.ssh/oracle/ssh-key-2026-09-21.key ubuntu@161.33.186.104 \
+  'sudo cp /opt/critter-bid/critter-bid /opt/critter-bid/critter-bid.prev && sudo install -m 755 /tmp/critter-bid /opt/critter-bid/critter-bid && sudo systemctl restart critter-bid && sleep 3 && systemctl is-active critter-bid'
+curl -s https://auction-platform-zeta-flame.vercel.app/api/health   # {"status":"ok"}
+```
+
+* 新版本若含 migration，啟動時會自動套用（`MIGRATE_ON_START=true`）。**含 migration 的版本要先確認 migration 可向下相容**，因為回滾 binary 不會自動回滾資料庫。
+* **回滾**：`sudo install -m 755 /opt/critter-bid/critter-bid.prev /opt/critter-bid/critter-bid && sudo systemctl restart critter-bid`。
+* `deploy/README.md` §4~§5 的「本機 build＋scp」是通用說明；在使用者這台電腦上請用上面的 CI 流程。
+
+### 8.2 更新前端
+
+push 到 `main` 後 Vercel 會自動部署（Root Directory `frontend`）。可用 `gh api repos/:owner/:repo/deployments` 或 Vercel 後台確認。前端環境變數只有 `BACKEND_URL`（必要時加 `NEXT_PUBLIC_IMAGE_ORIGIN`），**不要放任何金鑰**。
+
+### 8.3 常用維運指令（在 VM 上）
+
+```bash
+systemctl status critter-bid
+journalctl -u critter-bid -f                  # 後端 log（JSON；access log 不含 query string）
+journalctl -u critter-bid --since "1 hour ago" | grep '"level":"ERROR"'
+journalctl -u caddy -f                        # Caddy log
+sudo systemctl restart critter-bid            # 修改 /etc/critter-bid/backend.env 後要重啟
+sudo nano /etc/critter-bid/backend.env        # 640 root:critterbid，改完確認權限沒變
+free -m; systemctl show critter-bid -p MemoryCurrent
+```
+
+* **VM 上的 Caddyfile 與 repo 範本不同**：`/etc/caddy/Caddyfile` 的站點是 `161-33-186-104.sslip.io`、反向代理到 `127.0.0.1:8081`；repo 內 `deploy/Caddyfile` 是 `api.example.com`／8080 的範本。修改前先看 VM 上的實際檔案，改完 `sudo caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile && sudo systemctl reload caddy`。
+* **新增設定值**：先在 config 程式與兩個範本檔加上（§9），部署新 binary 前把值加進 VM 的 `backend.env`，否則可能啟動失敗（設定檢查會列出錯誤）。
+* **資料庫**：正式資料在 Neon 的 `critterbid_prod`，開發與整合測試用 `neondb`（整合測試會建立並刪除獨立 schema）。**不要在正式資料庫跑整合測試或手動修改資料**；`audit_logs` 有 trigger 禁止 UPDATE/DELETE。
+* **VM IP 變更**時要同步：VM 上的 Caddyfile、Vercel 的 `BACKEND_URL`、本文件 ADR-22。
+
+### 8.4 上線前要做的設定切換（照順序）
+
+1. LINE Login：建立 channel，Callback URL 設為 `https://auction-platform-zeta-flame.vercel.app/api/auth/line/callback`，在 VM env 填 `LINE_CHANNEL_ID`／`LINE_CHANNEL_SECRET`／`LINE_REDIRECT_URI`；用自己的 LINE 登入一次後，把自己的 `line_user_id` 填入 `ADMIN_LINE_USER_IDS`。
+2. 刪除 VM env 的 `TEST_LOGIN_PASSWORD` 並重啟（測試帳號 `test-*` 的資料會保留，可由管理員停權）。
+3. 綠界改用自己的正式商店（`ECPAY_MERCHANT_ID`／`HASH_KEY`／`HASH_IV`／`ECPAY_BASE_URL`），確認 `ECPAY_ALLOW_SIMULATED` 為 false，並先決定 §6 第 4 點的賣家撥款方式。
+4. 有自有網域時：前端綁 Vercel 網域，更新 `FRONTEND_URL`／`PUBLIC_BASE_URL`、LINE callback。
+
+---
+
+## 9. 常見修改的同步檢查清單
+
+| 修改 | 需要同步的地方 |
+|---|---|
+| 新增／修改 SQL 查詢 | `backend/queries/*.sql` → `sqlc generate`（產生 `internal/database/db/`，勿手改）→ 有 pgxmock 測試的套件要更新預期 SQL |
+| 新增 migration | `backend/migrations/00000N_<name>.up.sql`＋`.down.sql`（編號接續，目前到 000007）→ `sqlc generate` → docs/ARCHITECTURE.md §3 Schema。需「依建立順序列出」的表要加 identity `seq`（ADR-18） |
+| 新增 API | handler → `internal/server/server.go` 掛路由並套 `RequireUser/RequireMember/RequireAdmin`；**公開路由**要加進 `server_test.go` 的 `publicRoutes` → docs/API.md → 前端 `lib/types.ts`。非 GET 自動檢查 CSRF；外部 callback 才放進 CSRF exempt 清單 |
+| 新增 JSON 請求欄位 | DTO 只宣告允許的欄位（解碼為 `DisallowUnknownFields`），商業規則在後端驗證 |
+| 新增重要寫入操作 | 在同一交易用 `q` 寫 Audit（`internal/audit/audit.go` 新增 `Action*` 常數）；管理員操作必須帶原因 |
+| 新增通知類型 | `internal/notify/notify.go` 的 `Type` 常數＋`Types`（推播偏好清單與中文標籤）；用 `notify.Batch.Add` 在交易內寫入，commit 後才 `Dispatch` |
+| 新增環境變數 | `internal/config/config.go`（含驗證）→ `backend/.env.example` → `deploy/backend.env.production.example`（`config_test.go` 會檢查範本中的每個名稱都是 config 實際讀取的）→ VM `backend.env` |
+| 新增定時工作 | 寫成冪等、可併發（原子認領或 row lock），加進 `settlement.RunOnce` 或 `order.RunJobs`；不要新增常駐 worker |
+| 修改條款內文 | `internal/terms/terms.md` 與 `terms.go` 的 `CurrentVersion` **同時改**（所有使用者會被要求重新同意） |
+| 修改訂單狀態流程 | `order.CanTransition` 轉換表＋測試，經 `order.Transition` 更新（含 Audit）；同步 §5、ADR-16 |
+| 新增前端頁面 | `page.tsx` 為 Server Component 外殼；使用 `useSearchParams/usePathname/useParams` 的 Client Component 要包 `<Suspense>`；需要登入的頁面用 `RequireMember` |
+| 前端載入新的外部資源 | 更新 `next.config.ts` 的 CSP（img-src、connect-src、form-action 等） |
+| 依賴升級 | pgx 鎖在 v5.10.0（ADR-12，pgxmock 相容性）；Go 標準函式庫至少 1.27.3；升級後看 CI 的 govulncheck |
+
+---
+
+## 10. 後續工作清單（依建議優先順序）
+
+1. **使用者實機驗收**（進行中）：測試登入 → 刊登 → 多帳號出價 → 結標 → 訂單 → 訊息 → 綠界 stage 測試卡付款（確認 callback 抵達，`journalctl -u critter-bid | grep ecpay`）→ 填收件資訊 → 出貨 → 收貨 → 評價；手機 Web Push。發現問題時先查 VM log。
+2. 決定賣家撥款方式（§6 第 4 點），必要時實作撥款管理。
+3. 上線前設定切換（§8.4）。
+4. 視需要：重複付款串接綠界退款 API、改用 R2 存圖片（`STORAGE_BACKEND=r2`）、GitHub secret `TEST_DATABASE_URL`（讓 CI 跑整合測試，指向 Neon 的拋棄式 branch，不要指向正式資料庫）。
+
+**最近的修正紀錄**
+
+* 2026-10-23 `b8a391f`：發布競標時選擇圖片沒有反應。原因是 `<input type="file">` 的 `FileList` 是 live 物件，清空 input 後 state updater 才讀取，讀到空清單。現在先 `Array.from` 複製（`AuctionForm.addFiles`），並加上測試。
